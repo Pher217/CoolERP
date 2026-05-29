@@ -1,0 +1,19 @@
+[package]
+name = "ol-api"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Axum REST API + SeaORM CRUD."
+
+[dependencies]
+ol-domain = { path = "../ol-domain" }
+ol-ledger = { path = "../ol-ledger" }
+axum.workspace = true
+tokio.workspace = true
+sea-orm.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true

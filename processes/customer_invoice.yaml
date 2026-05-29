@@ -1,0 +1,18 @@
+# Business-process source-of-truth (version-controlled, diffable, machine-legible).
+# The lifecycle + posting rules for a customer invoice.
+process: customer_invoice
+states: [draft, posted, paid, void]
+transitions:
+  - from: draft
+    to: posted
+    capability: post_invoice
+    posting_rule:
+      debit: accounts_receivable
+      credit: [sales_revenue, tax_payable]
+    guards: [lines_nonempty, totals_balance]
+  - from: posted
+    to: paid
+    capability: register_payment
+  - from: draft
+    to: void
+    capability: void_invoice

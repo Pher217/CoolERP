@@ -1,0 +1,15 @@
+[package]
+name = "ol-cli"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "OpenLedger CLI: ol serve|migrate|replay|post."
+
+[[bin]]
+name = "ol"
+path = "src/main.rs"
+
+[dependencies]

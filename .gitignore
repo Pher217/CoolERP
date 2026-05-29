@@ -1,0 +1,8 @@
+/target
+**/*.rs.bk
+.env
+.env.*
+.DS_Store
+/apps/ol-ui/dist
+/apps/ol-ui/node_modules
+/apps/ol-ui/src-tauri/target
