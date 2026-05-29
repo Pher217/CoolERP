@@ -73,7 +73,11 @@ mod tests {
     use proptest::prelude::*;
 
     fn line(account: &str, debit: Cents, credit: Cents) -> Line {
-        Line { account_code: account.into(), debit, credit }
+        Line {
+            account_code: account.into(),
+            debit,
+            credit,
+        }
     }
 
     #[test]
@@ -87,7 +91,10 @@ mod tests {
         let lines = vec![line("1000", 10_000, 0), line("4000", 0, 9_000)];
         assert_eq!(
             assert_balanced(&lines),
-            Err(LedgerError::Unbalanced { debits: 10_000, credits: 9_000 })
+            Err(LedgerError::Unbalanced {
+                debits: 10_000,
+                credits: 9_000
+            })
         );
     }
 

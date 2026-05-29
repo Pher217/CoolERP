@@ -17,8 +17,9 @@ repository = "https://github.com/Pher217/openerp"
 # Async + web
 tokio = { version = "1", features = ["full"] }
 axum = "0.8"
-# DB: SQLx for the hot ledger path (ADR-004/005); SeaORM 1.1.x for CRUD (NOT 2.0 — still RC)
-sqlx = { version = "0.9", features = ["postgres", "runtime-tokio", "uuid", "chrono", "macros"] }
+# DB: SQLx for the hot ledger path (ADR-004/005); SeaORM 1.1.x for CRUD (NOT 2.0 — still RC).
+# Pinned to 0.8 to match the sqlx that SeaORM 1.1.x depends on — avoids two sqlx copies.
+sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "uuid", "chrono", "macros"] }
 sea-orm = { version = "1.1", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros"] }
 # MCP server (rmcp 1.7.x): stdio + Streamable HTTP
 rmcp = { version = "1", features = ["server", "macros", "transport-streamable-http-server"] }
