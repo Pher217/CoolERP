@@ -310,6 +310,29 @@ async fn db_trigger_rejects_unbalanced(pool: PgPool) -> TestResult {
     Ok(())
 }
 
+#[sqlx::test(migrations = "../../migrations")]
+async fn db_trigger_rejects_empty_entry(pool: PgPool) -> TestResult {
+    // A bare entry header with zero lines never fires the journal_lines trigger;
+    // the journal_entries trigger must reject it at COMMIT.
+    seed(&pool).await?;
+    let jid: i64 = sqlx::query_scalar("SELECT id FROM journals WHERE code = 'GEN'")
+        .fetch_one(&pool)
+        .await?;
+
+    let mut tx = pool.begin().await?;
+    sqlx::query("INSERT INTO journal_entries (journal_id, entry_date) VALUES ($1, '2026-05-29')")
+        .bind(jid)
+        .execute(&mut *tx)
+        .await?;
+    let commit = tx.commit().await;
+    assert!(
+        commit.is_err(),
+        "an entry with zero lines must be rejected at COMMIT"
+    );
+    assert_eq!(entry_count(&pool).await, 0);
+    Ok(())
+}
+
 // --- The append-only invariant: UPDATE / DELETE on the ledger is forbidden --
 
 #[sqlx::test(migrations = "../../migrations")]

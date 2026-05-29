@@ -33,8 +33,9 @@ use uuid::Uuid;
 const OPERATION: &str = "post_journal_entry";
 
 /// Bounded retry budget for serialization failures / deadlocks / in-flight
-/// idempotency races. (ADR-005)
-const MAX_ATTEMPTS: u32 = 8;
+/// idempotency races. (ADR-005) Heavy-contention tuning + load test is a
+/// pre-launch task.
+const MAX_ATTEMPTS: u32 = 10;
 
 /// A request to post one balanced journal entry.
 ///
@@ -160,30 +161,37 @@ async fn try_post(pool: &PgPool, req: &PostRequest) -> Result<Outcome, PostError
     .map_err(classify)?;
 
     if claimed.is_none() {
-        // The key exists. Read the stored result. If it is NULL the owning
-        // transaction is still in flight (or its commit is not yet visible to our
-        // snapshot) — roll back and retry; a fresh snapshot will see it.
-        let stored: Option<serde_json::Value> = sqlx::query_scalar(
+        // The key already exists — this is a replay. We must NOT read the stored
+        // result inside this transaction: our REPEATABLE READ snapshot was fixed
+        // at the INSERT above, and the owning transaction may have committed
+        // *after* that snapshot. `ON CONFLICT DO NOTHING` resolves the conflict
+        // against a fresh visibility check (hence it returned no row), but a
+        // SELECT here would run against our older snapshot and see the row as
+        // invisible — yielding a spurious "not found" on a perfectly valid
+        // retry. Instead, roll back and read with a fresh snapshot on the pool
+        // (READ COMMITTED). Because the claim row and its result are written in
+        // the *same* transaction (below), a visible row always has a non-NULL
+        // result; absence of a visible result means the owner is still in flight,
+        // so we retry with backoff.
+        let _ = tx.rollback().await;
+        let stored: Option<Option<serde_json::Value>> = sqlx::query_scalar(
             "SELECT result FROM idempotency_keys WHERE operation = $1 AND idempotency_key = $2",
         )
         .bind(OPERATION)
         .bind(req.idempotency_key)
-        .fetch_one(&mut *tx)
+        .fetch_optional(pool)
         .await
         .map_err(classify)?;
 
-        return match stored {
+        return match stored.flatten() {
             Some(json) => {
-                tx.commit().await.map_err(classify)?;
                 let mut result: PostResult = serde_json::from_value(json)
                     .map_err(|e| PostError::Db(sqlx::Error::Decode(Box::new(e))))?;
                 result.replayed = true;
                 Ok(Outcome::Done(result))
             }
-            None => {
-                let _ = tx.rollback().await;
-                Ok(Outcome::Retry)
-            }
+            // Owner still in flight (row not yet committed/visible) — retry.
+            None => Ok(Outcome::Retry),
         };
     }
 
@@ -369,7 +377,7 @@ fn classify(e: sqlx::Error) -> PostError {
 
 /// Exponential backoff with attempt-derived jitter (no wall-clock / RNG needed).
 async fn backoff(attempt: u32) {
-    let base_ms = 2_u64.saturating_pow(attempt).min(64);
+    let base_ms = 2_u64.saturating_pow(attempt).min(256);
     let jitter_ms = u64::from(attempt) * 3;
     tokio::time::sleep(std::time::Duration::from_millis(base_ms + jitter_ms)).await;
 }

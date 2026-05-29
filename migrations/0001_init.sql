@@ -195,6 +195,40 @@ CREATE CONSTRAINT TRIGGER trg_entry_balanced
     FOR EACH ROW EXECUTE FUNCTION assert_entry_balanced();
 
 -- ===========================================================================
+-- INVARIANT 1b — an entry header must have its balanced lines at COMMIT.
+-- The journal_lines trigger above only fires when a LINE is inserted, so a bare
+-- `INSERT INTO journal_entries` with no lines would never be checked and would
+-- persist a degenerate, unbalanced (empty) entry. This deferred trigger on
+-- journal_entries closes that hole: every committed entry must have >= 2 lines
+-- with Σdebit = Σcredit, regardless of how it was created.
+-- ===========================================================================
+CREATE OR REPLACE FUNCTION assert_entry_has_balanced_lines() RETURNS trigger AS $$
+DECLARE
+    v_debits  BIGINT;
+    v_credits BIGINT;
+    v_lines   INT;
+BEGIN
+    SELECT COALESCE(SUM(debit), 0), COALESCE(SUM(credit), 0), COUNT(*)
+      INTO v_debits, v_credits, v_lines
+      FROM journal_lines
+     WHERE entry_id = NEW.id;
+
+    IF v_lines < 2 THEN
+        RAISE EXCEPTION 'UNBALANCED_ENTRY: entry % has % line(s), need >= 2', NEW.id, v_lines;
+    END IF;
+    IF v_debits <> v_credits THEN
+        RAISE EXCEPTION 'UNBALANCED_ENTRY: entry % debits % != credits %', NEW.id, v_debits, v_credits;
+    END IF;
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE CONSTRAINT TRIGGER trg_entry_has_lines
+    AFTER INSERT ON journal_entries
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION assert_entry_has_balanced_lines();
+
+-- ===========================================================================
 -- INVARIANT 2 — the ledger + audit log are append-only. No UPDATE / DELETE.
 -- Corrections are reversing entries, never edits.
 -- ===========================================================================
