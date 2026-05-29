@@ -51,18 +51,24 @@ pub fn assert_balanced(lines: &[Line]) -> Result<(), LedgerError> {
     if lines.len() < 2 {
         return Err(LedgerError::TooFewLines(lines.len()));
     }
-    let mut debits: Cents = 0;
-    let mut credits: Cents = 0;
+    // Accumulate in i128 so a set of near-i64::MAX amounts cannot overflow the
+    // sums (silent wrap in release, panic in debug). The DB sums in BIGINT and is
+    // the source of truth; this pure check stays a faithful mirror at the boundary.
+    let mut debits: i128 = 0;
+    let mut credits: i128 = 0;
     for l in lines {
         // exactly one side non-zero, both non-negative
         if l.debit < 0 || l.credit < 0 || (l.debit == 0) == (l.credit == 0) {
             return Err(LedgerError::InvalidLine);
         }
-        debits += l.debit;
-        credits += l.credit;
+        debits += i128::from(l.debit);
+        credits += i128::from(l.credit);
     }
     if debits != credits {
-        return Err(LedgerError::Unbalanced { debits, credits });
+        return Err(LedgerError::Unbalanced {
+            debits: debits.clamp(Cents::MIN.into(), Cents::MAX.into()) as Cents,
+            credits: credits.clamp(Cents::MIN.into(), Cents::MAX.into()) as Cents,
+        });
     }
     Ok(())
 }
@@ -102,6 +108,23 @@ mod tests {
     fn single_line_rejected() {
         let lines = vec![line("1000", 10_000, 0)];
         assert_eq!(assert_balanced(&lines), Err(LedgerError::TooFewLines(1)));
+    }
+
+    #[test]
+    fn near_max_amounts_do_not_overflow() {
+        // Two debits near i64::MAX vs one matching credit would overflow an i64
+        // accumulator; the i128 sums must handle it without panicking. This set is
+        // unbalanced (2*MAX != MAX), so it must be reported as unbalanced, never
+        // wrap to a false "balanced".
+        let lines = vec![
+            line("1000", i64::MAX, 0),
+            line("1001", i64::MAX, 0),
+            line("4000", 0, i64::MAX),
+        ];
+        assert!(matches!(
+            assert_balanced(&lines),
+            Err(LedgerError::Unbalanced { .. })
+        ));
     }
 
     #[test]
