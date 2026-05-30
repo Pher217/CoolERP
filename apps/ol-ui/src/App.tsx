@@ -1,10 +1,9 @@
-import { useEffect, useState } from 'react'
-import { api, type HealthResponse, type BalanceResponse } from './api/client.ts'
-import { formatMoney } from './lib/money.ts'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { api, type HealthResponse } from './api/client.ts'
+import { AccountsPanel } from './components/AccountsPanel.tsx'
+import { WorkflowView } from './components/WorkflowView.tsx'
+import { PostEntryForm } from './components/PostEntryForm.tsx'
 import './App.css'
-
-// Seeded chart-of-accounts codes (from migrations/seed)
-const SEEDED_ACCOUNTS = ['1000', '4000', '2000', '3000', '5000']
 
 type BackendStatus = 'checking' | 'ok' | 'unreachable'
 
@@ -49,84 +48,14 @@ function BackendStatusWidget() {
   )
 }
 
-type AccountRow = {
-  code: string
-  balance: BalanceResponse | null
-  error: boolean
-}
+export default function App() {
+  // accountsPanelRef allows PostEntryForm to trigger a balances refresh
+  const refreshBalancesRef = useRef<() => void>(() => {})
 
-function AccountsPanel() {
-  const [rows, setRows] = useState<AccountRow[]>(
-    SEEDED_ACCOUNTS.map((code) => ({ code, balance: null, error: false })),
-  )
-  const [apiOffline, setApiOffline] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-
-    Promise.all(
-      SEEDED_ACCOUNTS.map((code) =>
-        api
-          .accountBalance(code)
-          .then((b) => ({ code, balance: b, error: false }))
-          .catch(() => ({ code, balance: null, error: true })),
-      ),
-    ).then((results) => {
-      if (cancelled) return
-      // If every account failed, assume API is offline
-      if (results.every((r) => r.error)) {
-        setApiOffline(true)
-      } else {
-        setRows(results)
-      }
-    })
-
-    return () => {
-      cancelled = true
-    }
+  const registerRefresh = useCallback((fn: () => void) => {
+    refreshBalancesRef.current = fn
   }, [])
 
-  if (apiOffline) {
-    return (
-      <div className="widget">
-        <h2>Accounts</h2>
-        <p className="muted">API offline — start ol-api to load balances.</p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="widget">
-      <h2>Accounts</h2>
-      <table className="accounts-table">
-        <thead>
-          <tr>
-            <th>Code</th>
-            <th>Balance</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(({ code, balance, error }) => (
-            <tr key={code}>
-              <td>{code}</td>
-              <td>
-                {error ? (
-                  <span className="muted">—</span>
-                ) : balance === null ? (
-                  <span className="muted">Loading…</span>
-                ) : (
-                  formatMoney(balance.balance, 'EUR', 'en-US')
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-export default function App() {
   return (
     <div className="app">
       <header className="app-header">
@@ -135,7 +64,9 @@ export default function App() {
       </header>
       <main className="dashboard">
         <BackendStatusWidget />
-        <AccountsPanel />
+        <AccountsPanel onRegisterRefresh={registerRefresh} />
+        <PostEntryForm onSuccess={() => refreshBalancesRef.current()} />
+        <WorkflowView />
       </main>
     </div>
   )
