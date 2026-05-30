@@ -70,6 +70,12 @@ pub enum ErrorCode {
     PeriodClosed,
     NegativeStock,
     Validation,
+    /// Mutation rejected because the target resource is append-only.
+    AppendOnly,
+    /// Serialization failure after all retry attempts were exhausted.
+    SerializationFailure,
+    /// Unexpected internal / database error.
+    Internal,
 }
 
 impl std::fmt::Display for ErrorCode {
@@ -83,6 +89,9 @@ impl std::fmt::Display for ErrorCode {
             ErrorCode::PeriodClosed => "PERIOD_CLOSED",
             ErrorCode::NegativeStock => "NEGATIVE_STOCK",
             ErrorCode::Validation => "VALIDATION",
+            ErrorCode::AppendOnly => "APPEND_ONLY",
+            ErrorCode::SerializationFailure => "SERIALIZATION_FAILURE",
+            ErrorCode::Internal => "INTERNAL",
         };
         f.write_str(s)
     }
@@ -145,6 +154,9 @@ mod tests {
             (ErrorCode::PeriodClosed, "PERIOD_CLOSED"),
             (ErrorCode::NegativeStock, "NEGATIVE_STOCK"),
             (ErrorCode::Validation, "VALIDATION"),
+            (ErrorCode::AppendOnly, "APPEND_ONLY"),
+            (ErrorCode::SerializationFailure, "SERIALIZATION_FAILURE"),
+            (ErrorCode::Internal, "INTERNAL"),
         ];
 
         for (code, expected) in pairs {
