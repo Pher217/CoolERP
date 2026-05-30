@@ -115,7 +115,7 @@ function AccountsPanel() {
                 ) : balance === null ? (
                   <span className="muted">Loading…</span>
                 ) : (
-                  formatMoney(balance.balance_cents, balance.currency ?? 'USD', 'en-US')
+                  formatMoney(balance.balance, 'EUR', 'en-US')
                 )}
               </td>
             </tr>

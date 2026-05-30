@@ -3,7 +3,6 @@ import { formatMoney } from './money.ts'
 
 describe('formatMoney', () => {
   it('formats USD cents correctly', () => {
-    // 10050 cents = $100.50
     expect(formatMoney(10050, 'USD', 'en-US')).toBe('$100.50')
   })
 
@@ -12,26 +11,30 @@ describe('formatMoney', () => {
   })
 
   it('formats EUR in French locale', () => {
-    // 25099 cents = 250.99 EUR in fr-FR format
     const result = formatMoney(25099, 'EUR', 'fr-FR')
-    // Intl formats may use non-breaking spaces; just check it contains "250" and "99"
     expect(result).toContain('250')
     expect(result).toContain('99')
     expect(result).toContain('€')
   })
 
-  it('formats negative amounts', () => {
-    // -500 cents = -$5.00
+  it('formats a large negative amount', () => {
     expect(formatMoney(-500, 'USD', 'en-US')).toBe('-$5.00')
   })
 
+  it('keeps the sign for small negative amounts (regression)', () => {
+    // -5 cents = -$0.05 — must NOT render as positive $0.05.
+    expect(formatMoney(-5, 'USD', 'en-US')).toBe('-$0.05')
+  })
+
+  it('keeps the sign for sub-unit negatives down to -1 cent', () => {
+    expect(formatMoney(-1, 'USD', 'en-US')).toBe('-$0.01')
+  })
+
   it('formats single-digit cents with leading zero', () => {
-    // 101 cents = $1.01
     expect(formatMoney(101, 'USD', 'en-US')).toBe('$1.01')
   })
 
   it('formats large amounts correctly', () => {
-    // 1234567 cents = $12,345.67
     expect(formatMoney(1234567, 'USD', 'en-US')).toBe('$12,345.67')
   })
 
@@ -40,7 +43,6 @@ describe('formatMoney', () => {
   })
 
   it('formats CHF in Swiss German locale', () => {
-    // 99900 cents = 999.00 CHF
     const result = formatMoney(99900, 'CHF', 'de-CH')
     expect(result).toContain('999')
     expect(result).toContain('00')

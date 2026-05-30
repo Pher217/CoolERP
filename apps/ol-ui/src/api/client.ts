@@ -14,8 +14,12 @@ export type HealthResponse = {
 
 export type BalanceResponse = {
   account_code: string
-  balance_cents: number
-  currency: string
+  /** Total debits in integer cents. */
+  debits: number
+  /** Total credits in integer cents. */
+  credits: number
+  /** Type-normalised signed balance in integer cents. */
+  balance: number
 }
 
 class ApiError extends Error {
