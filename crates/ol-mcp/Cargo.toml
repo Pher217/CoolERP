@@ -11,9 +11,20 @@ description = "MCP server: rmcp + Axum + Tokio, OAuth 2.1 PKCE, scoped tokens."
 [dependencies]
 ol-domain = { path = "../ol-domain" }
 ol-ledger = { path = "../ol-ledger" }
+ol-process = { path = "../ol-process" }
+ol-sdk = { path = "../ol-sdk" }
 rmcp.workspace = true
-axum.workspace = true
 tokio.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
+schemars = { version = "1.0", features = ["chrono04", "uuid1"] }
+chrono.workspace = true
+uuid.workspace = true
+sqlx.workspace = true
+anyhow.workspace = true
+
+[[bin]]
+name = "ol-mcp"
+path = "src/main.rs"
