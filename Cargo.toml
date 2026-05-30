@@ -15,8 +15,11 @@ repository = "https://github.com/Pher217/openerp"
 
 [workspace.dependencies]
 # Async + web
-tokio = { version = "1", features = ["full"] }
 axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6", features = ["trace"] }
+utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-axum = "0.2"
 # DB: SQLx for the hot ledger path (ADR-004/005); SeaORM 1.1.x for CRUD (NOT 2.0 — still RC).
 # Pinned to 0.8 to match the sqlx that SeaORM 1.1.x depends on — avoids two sqlx copies.
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "uuid", "chrono", "macros", "migrate", "json"] }
