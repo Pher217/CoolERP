@@ -6,14 +6,25 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Axum REST API + SeaORM CRUD."
+description = "Axum REST API + OpenAPI 3.1 for OpenLedger."
+
+[[bin]]
+name = "ol-api"
+path = "src/main.rs"
 
 [dependencies]
 ol-domain = { path = "../ol-domain" }
 ol-ledger = { path = "../ol-ledger" }
+anyhow.workspace = true
 axum.workspace = true
-tokio.workspace = true
-sea-orm.workspace = true
+chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tower-http.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
+utoipa.workspace = true
+utoipa-axum.workspace = true
+uuid.workspace = true
