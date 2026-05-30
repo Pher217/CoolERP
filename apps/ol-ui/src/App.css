@@ -1,0 +1,94 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1.5rem;
+  background: #1e293b;
+  color: #f1f5f9;
+  border-bottom: 2px solid #334155;
+}
+
+.logo {
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+.tagline {
+  font-size: 0.8rem;
+  color: #94a3b8;
+}
+
+.dashboard {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.5rem;
+  padding: 1.5rem;
+  align-items: start;
+}
+
+.widget {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  padding: 1.25rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.07);
+}
+
+.widget h2 {
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+  margin-bottom: 0.75rem;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 9999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.detail {
+  margin-top: 0.75rem;
+  font-size: 0.8rem;
+  color: #475569;
+}
+
+.muted {
+  color: #94a3b8;
+  font-size: 0.85rem;
+}
+
+.accounts-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.accounts-table th,
+.accounts-table td {
+  text-align: left;
+  padding: 0.5rem 0.25rem;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.accounts-table th {
+  color: #64748b;
+  font-weight: 600;
+}
+
+.accounts-table td:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}

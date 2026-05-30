@@ -1,3 +1,0 @@
-# Tauri desktop UI (Stage 2). Read-mostly views over ledgers, invoices, audit.
-# Tauri targets desktop + mobile only (NOT browser) — a web UI needs a separate
-# SPA/PWA over the REST API. See vault gotchas #2.
