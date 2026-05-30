@@ -6,10 +6,17 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "OpenLedger CLI: ol serve|migrate|replay|post."
+description = "OpenLedger CLI: ol serve|migrate|replay|post|balance."
 
 [[bin]]
 name = "ol"
 path = "src/main.rs"
 
 [dependencies]
+clap.workspace = true
+tokio.workspace = true
+sqlx.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+ol-ledger = { path = "../ol-ledger" }
+ol-domain = { path = "../ol-domain" }

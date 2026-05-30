@@ -34,22 +34,28 @@ fn req(key: Uuid, lines: Vec<Line>) -> PostRequest {
 }
 
 /// Seed a general journal and a minimal chart of accounts.
+/// Uses ON CONFLICT DO NOTHING so this coexists with 0002_seed_chart_of_accounts.sql
+/// which #[sqlx::test] applies (via migrations = "../../migrations") before each test.
 async fn seed(pool: &PgPool) -> TestResult {
-    sqlx::query("INSERT INTO journals (code, name) VALUES ('GEN', 'General')")
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "INSERT INTO journals (code, name) VALUES ('GEN', 'General') ON CONFLICT (code) DO NOTHING",
+    )
+    .execute(pool)
+    .await?;
     for (code, name, kind) in [
         ("1000", "Cash", "asset"),
         ("4000", "Sales", "income"),
         ("2000", "Accounts Payable", "liability"),
         ("5000", "COGS", "expense"),
     ] {
-        sqlx::query("INSERT INTO accounts (code, name, type) VALUES ($1, $2, $3::account_type)")
-            .bind(code)
-            .bind(name)
-            .bind(kind)
-            .execute(pool)
-            .await?;
+        sqlx::query(
+            "INSERT INTO accounts (code, name, type) VALUES ($1, $2, $3::account_type) ON CONFLICT (code) DO NOTHING",
+        )
+        .bind(code)
+        .bind(name)
+        .bind(kind)
+        .execute(pool)
+        .await?;
     }
     Ok(())
 }
