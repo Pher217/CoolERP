@@ -17,6 +17,8 @@ use axum::{
 use chrono::NaiveDate;
 use ol_domain::Line;
 use ol_ledger::{PostError, PostRequest, PostResult, account_balance, post_journal_entry};
+use ol_process::Process;
+use ol_sdk::{ApiError, ErrorCode, ErrorEnvelope};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use utoipa::{OpenApi, ToSchema};
@@ -33,6 +35,8 @@ pub fn app(pool: PgPool) -> axum::Router {
         .routes(routes!(health))
         .routes(routes!(get_balance))
         .routes(routes!(create_journal_entry))
+        .routes(routes!(list_processes))
+        .routes(routes!(get_process))
         .split_for_parts();
 
     router
@@ -58,33 +62,100 @@ pub fn app(pool: PgPool) -> axum::Router {
         CreateJournalEntryRequest,
         LineRequest,
         PostResultResponse,
-        ApiError,
+        ErrorBody,
+        ListProcessesResponse,
+        ProcessResponse,
+        TransitionResponse,
     ))
 )]
 struct ApiDoc;
 
-// ─── Shared types ─────────────────────────────────────────────────────────────
+// ─── Error helpers ───────────────────────────────────────────────────────────
 
-/// JSON error body returned on all non-2xx responses.
+/// OpenAPI schema for the error envelope body.
+///
+/// `ol_sdk::ErrorEnvelope` is not `ToSchema`-derived (it lives in the SDK crate
+/// without a utoipa dependency), so we register this local wrapper in the OpenAPI
+/// component map.  The actual wire encoding is [`ErrorEnvelope`] — identical shape.
 #[derive(Debug, Serialize, ToSchema)]
-pub struct ApiError {
+pub struct ErrorBody {
+    pub error: ErrorBodyInner,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ErrorBodyInner {
     pub code: String,
     pub message: String,
 }
 
-impl ApiError {
-    fn with_status(
-        status: StatusCode,
-        code: impl Into<String>,
-        message: impl Into<String>,
-    ) -> (StatusCode, Json<Self>) {
-        (
-            status,
-            Json(Self {
-                code: code.into(),
-                message: message.into(),
-            }),
-        )
+/// Build an [`ErrorEnvelope`] and pair it with an HTTP status, ready for
+/// [`IntoResponse`].
+fn err_response(
+    status: StatusCode,
+    code: ErrorCode,
+    message: impl Into<String>,
+) -> (StatusCode, Json<ErrorEnvelope>) {
+    (
+        status,
+        Json(ErrorEnvelope::new(ApiError::new(code, message))),
+    )
+}
+
+/// Map a [`PostError`] to an HTTP status + canonical [`ErrorEnvelope`].
+///
+/// Mapping table:
+///
+/// | PostError variant      | HTTP | ErrorCode            |
+/// |------------------------|------|----------------------|
+/// | Domain(_)              | 422  | UnbalancedEntry      |
+/// | Unbalanced{..}         | 422  | UnbalancedEntry      |
+/// | AppendOnly{..}         | 422  | AppendOnly           |
+/// | AccountNotFound        | 404  | AccountNotFound      |
+/// | JournalNotFound        | 404  | JournalNotFound      |
+/// | Serialization(_)       | 409  | SerializationFailure |
+/// | Db(_)                  | 500  | Internal             |
+///
+/// `Domain` maps to `UnbalancedEntry` because `ol_domain::LedgerError` covers
+/// unbalanced totals, fewer than two lines, and double-sided lines — all
+/// structural balance violations.  A dedicated `Validation` code would hide
+/// the more precise information already in the message.
+fn post_error_response(e: PostError) -> (StatusCode, Json<ErrorEnvelope>) {
+    match e {
+        PostError::Domain(inner) => err_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            ErrorCode::UnbalancedEntry,
+            inner.to_string(),
+        ),
+        PostError::Unbalanced { message } => err_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            ErrorCode::UnbalancedEntry,
+            message,
+        ),
+        PostError::AppendOnly { message } => err_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            ErrorCode::AppendOnly,
+            message,
+        ),
+        PostError::AccountNotFound(code) => err_response(
+            StatusCode::NOT_FOUND,
+            ErrorCode::AccountNotFound,
+            format!("account not found: {code}"),
+        ),
+        PostError::JournalNotFound(code) => err_response(
+            StatusCode::NOT_FOUND,
+            ErrorCode::JournalNotFound,
+            format!("journal not found: {code}"),
+        ),
+        PostError::Serialization(attempts) => err_response(
+            StatusCode::CONFLICT,
+            ErrorCode::SerializationFailure,
+            format!("exhausted {attempts} retry attempts"),
+        ),
+        PostError::Db(inner) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorCode::Internal,
+            inner.to_string(),
+        ),
     }
 }
 
@@ -138,8 +209,8 @@ pub struct BalanceResponse {
     ),
     responses(
         (status = 200, description = "Account balance", body = BalanceResponse),
-        (status = 404, description = "Account not found", body = ApiError),
-        (status = 500, description = "Database error", body = ApiError),
+        (status = 404, description = "Account not found", body = ErrorBody),
+        (status = 500, description = "Database error", body = ErrorBody),
     )
 )]
 pub async fn get_balance(
@@ -157,16 +228,7 @@ pub async fn get_balance(
             }),
         )
             .into_response(),
-        Err(PostError::AccountNotFound(c)) => ApiError::with_status(
-            StatusCode::NOT_FOUND,
-            "ACCOUNT_NOT_FOUND",
-            format!("account not found: {c}"),
-        )
-        .into_response(),
-        Err(e) => {
-            ApiError::with_status(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", e.to_string())
-                .into_response()
-        }
+        Err(e) => post_error_response(e).into_response(),
     }
 }
 
@@ -232,10 +294,10 @@ impl From<PostResult> for PostResultResponse {
     responses(
         (status = 201, description = "Entry created", body = PostResultResponse),
         (status = 200, description = "Idempotent replay of existing entry", body = PostResultResponse),
-        (status = 404, description = "Account or journal not found", body = ApiError),
-        (status = 409, description = "Serialization failure after retries exhausted", body = ApiError),
-        (status = 422, description = "Domain error (unbalanced entry, invalid lines)", body = ApiError),
-        (status = 500, description = "Database error", body = ApiError),
+        (status = 404, description = "Account or journal not found", body = ErrorBody),
+        (status = 409, description = "Serialization failure after retries exhausted", body = ErrorBody),
+        (status = 422, description = "Domain error (unbalanced entry, invalid lines)", body = ErrorBody),
+        (status = 500, description = "Database error", body = ErrorBody),
     )
 )]
 pub async fn create_journal_entry(
@@ -269,43 +331,168 @@ pub async fn create_journal_entry(
             };
             (status, Json(PostResultResponse::from(result))).into_response()
         }
-        Err(PostError::Domain(e)) => ApiError::with_status(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "DOMAIN_ERROR",
-            e.to_string(),
-        )
-        .into_response(),
-        Err(PostError::Unbalanced { message }) => ApiError::with_status(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            "UNBALANCED_ENTRY",
-            message,
-        )
-        .into_response(),
-        Err(PostError::AccountNotFound(c)) => ApiError::with_status(
-            StatusCode::NOT_FOUND,
-            "ACCOUNT_NOT_FOUND",
-            format!("account not found: {c}"),
-        )
-        .into_response(),
-        Err(PostError::JournalNotFound(j)) => ApiError::with_status(
-            StatusCode::NOT_FOUND,
-            "JOURNAL_NOT_FOUND",
-            format!("journal not found: {j}"),
-        )
-        .into_response(),
-        Err(PostError::Serialization(attempts)) => ApiError::with_status(
-            StatusCode::CONFLICT,
-            "SERIALIZATION_FAILURE",
-            format!("exhausted {attempts} retry attempts"),
-        )
-        .into_response(),
-        Err(PostError::AppendOnly { message }) => {
-            ApiError::with_status(StatusCode::UNPROCESSABLE_ENTITY, "APPEND_ONLY", message)
-                .into_response()
-        }
-        Err(PostError::Db(e)) => {
-            ApiError::with_status(StatusCode::INTERNAL_SERVER_ERROR, "DB_ERROR", e.to_string())
-                .into_response()
-        }
+        Err(e) => post_error_response(e).into_response(),
     }
+}
+
+// ─── Process directory helpers ────────────────────────────────────────────────
+
+/// Resolve the directory where process YAML files are stored.
+///
+/// Priority order:
+/// 1. `PROCESSES_DIR` environment variable (runtime override).
+/// 2. `<manifest_dir>/../../processes` — works in both a local dev checkout and
+///    inside `.claude/worktrees/…`, since `processes/` sits two levels above
+///    `crates/ol-api` in both layouts.
+fn processes_dir() -> std::path::PathBuf {
+    if let Ok(dir) = std::env::var("PROCESSES_DIR") {
+        return std::path::PathBuf::from(dir);
+    }
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("processes")
+}
+
+// ─── GET /processes ───────────────────────────────────────────────────────────
+
+/// List of process names available on the server.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ListProcessesResponse {
+    pub processes: Vec<String>,
+}
+
+/// List all known process names.
+///
+/// Names are derived from YAML filenames in `processes/` (stem without `.yaml`),
+/// returned in alphabetical order.
+#[utoipa::path(
+    get,
+    path = "/processes",
+    responses(
+        (status = 200, description = "List of process names", body = ListProcessesResponse),
+        (status = 500, description = "Failed to read process directory", body = ErrorBody),
+    )
+)]
+pub async fn list_processes() -> impl IntoResponse {
+    let dir = processes_dir();
+
+    let read_dir = match std::fs::read_dir(&dir) {
+        Ok(rd) => rd,
+        Err(e) => {
+            return err_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::Internal,
+                format!("failed to read processes directory: {e}"),
+            )
+            .into_response();
+        }
+    };
+
+    let mut names: Vec<String> = read_dir
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("yaml") {
+                path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .map(ToOwned::to_owned)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    names.sort();
+
+    Json(ListProcessesResponse { processes: names }).into_response()
+}
+
+// ─── GET /processes/{name} ────────────────────────────────────────────────────
+
+/// Full detail of a single process, including the rendered Mermaid diagram.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ProcessResponse {
+    /// Process identifier.
+    pub process: String,
+    /// Ordered list of valid states.
+    pub states: Vec<String>,
+    /// State transitions with optional capability labels.
+    pub transitions: Vec<TransitionResponse>,
+    /// Mermaid `stateDiagram-v2` source for the full workflow.
+    pub mermaid: String,
+}
+
+/// A single state transition.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TransitionResponse {
+    pub from: String,
+    pub to: String,
+    pub capability: Option<String>,
+}
+
+/// Get a process by name.
+#[utoipa::path(
+    get,
+    path = "/processes/{name}",
+    params(
+        ("name" = String, Path, description = "Process name, e.g. \"customer_invoice\"")
+    ),
+    responses(
+        (status = 200, description = "Process detail", body = ProcessResponse),
+        (status = 404, description = "Process not found", body = ErrorBody),
+        (status = 500, description = "Failed to load or parse process YAML", body = ErrorBody),
+    )
+)]
+pub async fn get_process(Path(name): Path<String>) -> impl IntoResponse {
+    let path = processes_dir().join(format!("{name}.yaml"));
+
+    let yaml = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return err_response(
+                StatusCode::NOT_FOUND,
+                ErrorCode::Validation,
+                format!("process not found: {name}"),
+            )
+            .into_response();
+        }
+        Err(e) => {
+            return err_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::Internal,
+                format!("failed to read process file: {e}"),
+            )
+            .into_response();
+        }
+    };
+
+    let process = match Process::from_yaml(&yaml) {
+        Ok(p) => p,
+        Err(e) => {
+            return err_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::Internal,
+                format!("failed to parse process YAML: {e}"),
+            )
+            .into_response();
+        }
+    };
+
+    let mermaid = process.to_mermaid(None);
+
+    Json(ProcessResponse {
+        process: process.process.clone(),
+        states: process.states.clone(),
+        transitions: process
+            .transitions
+            .iter()
+            .map(|t| TransitionResponse {
+                from: t.from.clone(),
+                to: t.to.clone(),
+                capability: t.capability.clone(),
+            })
+            .collect(),
+        mermaid,
+    })
+    .into_response()
 }

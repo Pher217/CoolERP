@@ -15,6 +15,8 @@ path = "src/main.rs"
 [dependencies]
 ol-domain = { path = "../ol-domain" }
 ol-ledger = { path = "../ol-ledger" }
+ol-process = { path = "../ol-process" }
+ol-sdk = { path = "../ol-sdk" }
 anyhow.workspace = true
 axum.workspace = true
 chrono.workspace = true
@@ -28,3 +30,7 @@ tracing-subscriber.workspace = true
 utoipa.workspace = true
 utoipa-axum.workspace = true
 uuid.workspace = true
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+sqlx = { workspace = true }
