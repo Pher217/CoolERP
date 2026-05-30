@@ -1,6 +1,6 @@
 <div align="center">
 
-# OpenLedger
+# OpenERP
 
 **The ERP whose primary operator is an AI agent — and whose books cannot be wrong by construction.**
 
