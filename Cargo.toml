@@ -35,6 +35,12 @@ thiserror = "2"
 anyhow = "1"
 sha2 = "0.10"
 chrono = { version = "0.4", features = ["serde"] }
+# ol-auth: OAuth 2.1 AS crypto/token core
+jsonwebtoken = "9"
+ed25519-dalek = { version = "2", features = ["pkcs8", "pem", "rand_core"] }
+argon2 = "0.5"
+base64 = "0.22"
+rand = "0.8"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 proptest = "1"
