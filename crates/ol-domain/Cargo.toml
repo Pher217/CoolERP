@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Core entities and double-entry invariants for OpenLedger."
+description = "Core entities and double-entry invariants for OpenERP."
 
 [dependencies]
 serde.workspace = true

@@ -1,4 +1,4 @@
-//! ol-sdk — typed client SDK for the OpenLedger MCP / REST API.
+//! ol-sdk — typed client SDK for the OpenERP MCP / REST API.
 //!
 //! Licensed MIT OR Apache-2.0 (permissive, frictionless integration; ADR-003).
 //! Stage 1: typed request/response structs mirroring the capability surface in
@@ -22,7 +22,7 @@ impl ErrorEnvelope {
     }
 }
 
-/// Structured API error matching the OpenLedger error contract.
+/// Structured API error matching the OpenERP error contract.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Error)]
 #[error("{code}: {message}")]
 pub struct ApiError {

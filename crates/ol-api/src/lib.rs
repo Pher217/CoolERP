@@ -52,7 +52,7 @@ pub fn app(pool: PgPool) -> axum::Router {
 #[derive(OpenApi)]
 #[openapi(
     info(
-        title = "OpenLedger API",
+        title = "OpenERP API",
         version = "0.1.0",
         description = "Double-entry ledger REST API. Money amounts are integer cents (i64). No floats."
     ),

@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "OpenLedger CLI: ol serve|migrate|replay|post|balance."
+description = "OpenERP CLI: ol serve|migrate|replay|post|balance."
 
 [[bin]]
 name = "ol"

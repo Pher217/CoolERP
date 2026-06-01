@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Business-process YAML loader and Mermaid state diagram renderer for OpenLedger."
+description = "Business-process YAML loader and Mermaid state diagram renderer for OpenERP."
 
 [dependencies]
 serde.workspace = true

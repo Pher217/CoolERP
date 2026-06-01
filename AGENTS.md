@@ -1,4 +1,4 @@
-# AGENTS.md — OpenLedger
+# AGENTS.md — OpenERP
 
 Guidance for AI coding agents contributing to this repo. (AAIF AGENTS.md standard.)
 

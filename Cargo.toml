@@ -1,4 +1,4 @@
-# OpenLedger monorepo workspace (working repo name: openerp).
+# OpenERP monorepo workspace (working repo name: openerp).
 # NOTE: no Rust toolchain was installed when this was scaffolded (2026-05-29);
 # dependency versions/features are conservative but UNVERIFIED by a real build.
 # Stage 1 first step: install Rust, then `cargo build` and reconcile versions.

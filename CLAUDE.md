@@ -1,4 +1,4 @@
-# CLAUDE.md — OpenLedger (repo)
+# CLAUDE.md — OpenERP (repo)
 
 Repo-specific guidance. Project design docs, decisions, lessons, and research live in the maintainer's Obsidian vault under `02 Projects/OpenERP`, not in this repo.
 
