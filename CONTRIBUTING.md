@@ -1,6 +1,6 @@
-# Contributing to OpenLedger
+# Contributing to OpenERP
 
-Thank you for your interest. OpenLedger is an agent-native, double-entry-correct ERP where **accounting correctness is the entire credibility surface** — contributions are held to a high bar.
+Thank you for your interest. OpenERP is an agent-native, double-entry-correct ERP where **accounting correctness is the entire credibility surface** — contributions are held to a high bar.
 
 ## Developer Certificate of Origin (DCO)
 

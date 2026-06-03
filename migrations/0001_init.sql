@@ -1,4 +1,4 @@
--- OpenLedger v0.1 — initial schema + double-entry invariants.
+-- OpenERP v0.1 — initial schema + double-entry invariants.
 -- Money is integer cents (BIGINT). No floats. (ADR-007)
 -- Correctness is the entire credibility surface — the invariants below are
 -- enforced in the DATABASE, not the application or UI.

@@ -1,6 +1,6 @@
-# ol-ui — OpenLedger Web App
+# ol-ui — OpenERP Web App
 
-React 19 + Vite + TypeScript browser SPA for the OpenLedger REST API.
+React 19 + Vite + TypeScript browser SPA for the OpenERP REST API.
 
 ## Prerequisites
 

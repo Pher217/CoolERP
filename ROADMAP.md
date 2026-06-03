@@ -1,6 +1,6 @@
 # Roadmap
 
-Public roadmap for OpenLedger. Tracked in more detail on the GitHub Projects board
+Public roadmap for OpenERP. Tracked in more detail on the GitHub Projects board
 (to be created) and via [`good first issue`](https://github.com/Pher217/openerp/labels/good%20first%20issue) labels.
 
 > Status: **private, pre-launch.** The repo goes public at Stage 3.

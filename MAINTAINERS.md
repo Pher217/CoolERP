@@ -1,6 +1,6 @@
 # Maintainers
 
-OpenLedger's credibility rests on accounting correctness. Each domain below needs an
+OpenERP's credibility rests on accounting correctness. Each domain below needs an
 accountable owner. Three named maintainers (real people + GitHub handles) are required
 **before public launch** — see [ROADMAP.md](ROADMAP.md) Stage 3.
 

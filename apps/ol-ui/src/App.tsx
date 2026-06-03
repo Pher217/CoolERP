@@ -59,7 +59,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <span className="logo">OpenLedger</span>
+        <span className="logo">OpenERP</span>
         <span className="tagline">Correct by construction · Agent-native by design</span>
       </header>
       <main className="dashboard">
