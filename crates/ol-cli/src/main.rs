@@ -113,6 +113,7 @@ async fn main() {
                 idempotency_key: Uuid::new_v4(),
                 journal_code: journal,
                 entry_date,
+                effective_date: None,
                 memo,
                 reference: None,
                 actor,

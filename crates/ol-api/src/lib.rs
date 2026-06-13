@@ -146,6 +146,17 @@ fn post_error_response(e: PostError) -> (StatusCode, Json<ErrorEnvelope>) {
             ErrorCode::JournalNotFound,
             format!("journal not found: {code}"),
         ),
+        PostError::PeriodClosed { message } => {
+            err_response(StatusCode::CONFLICT, ErrorCode::PeriodClosed, message)
+        }
+        PostError::PeriodOverlap { message } => {
+            err_response(StatusCode::CONFLICT, ErrorCode::Validation, message)
+        }
+        PostError::PeriodNotFound(code) => err_response(
+            StatusCode::NOT_FOUND,
+            ErrorCode::Validation,
+            format!("fiscal period not found: {code}"),
+        ),
         PostError::Serialization(attempts) => err_response(
             StatusCode::CONFLICT,
             ErrorCode::SerializationFailure,
@@ -254,6 +265,9 @@ pub struct CreateJournalEntryRequest {
     pub journal_code: String,
     /// ISO-8601 date (YYYY-MM-DD).
     pub entry_date: NaiveDate,
+    /// Economic date determining the fiscal period. Defaults to entry_date when absent.
+    #[serde(default)]
+    pub effective_date: Option<NaiveDate>,
     pub memo: Option<String>,
     pub reference: Option<String>,
     /// Audit actor — the subject of the calling token.
@@ -308,6 +322,7 @@ pub async fn create_journal_entry(
         idempotency_key: body.idempotency_key,
         journal_code: body.journal_code,
         entry_date: body.entry_date,
+        effective_date: body.effective_date,
         memo: body.memo,
         reference: body.reference,
         actor: body.actor,

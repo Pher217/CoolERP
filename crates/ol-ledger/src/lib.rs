@@ -22,6 +22,8 @@
 //!
 //! All money is integer cents (`ol_domain::Cents`). No floats. (ADR-007)
 
+pub mod periods;
+
 use chrono::NaiveDate;
 use ol_domain::{Cents, Line, assert_balanced};
 use serde::{Deserialize, Serialize};
@@ -46,6 +48,8 @@ pub struct PostRequest {
     pub idempotency_key: Uuid,
     pub journal_code: String,
     pub entry_date: NaiveDate,
+    /// Economic date determining the fiscal period. Defaults to entry_date when None.
+    pub effective_date: Option<NaiveDate>,
     pub memo: Option<String>,
     pub reference: Option<String>,
     /// Audit actor (e.g. the MCP token subject). Recorded in `events.actor`.
@@ -94,6 +98,15 @@ pub enum PostError {
     /// An append-only trigger rejected a mutation.
     #[error("APPEND_ONLY: {message}")]
     AppendOnly { message: String },
+    /// effective_date falls in a closed fiscal period.
+    #[error("PERIOD_CLOSED: {message}")]
+    PeriodClosed { message: String },
+    /// A fiscal period with overlapping dates already exists.
+    #[error("PERIOD_OVERLAP: {message}")]
+    PeriodOverlap { message: String },
+    /// The named fiscal period does not exist.
+    #[error("PERIOD_NOT_FOUND: {0}")]
+    PeriodNotFound(String),
     /// Retries exhausted on serialization failure / deadlock / in-flight race.
     #[error("SERIALIZATION_FAILURE: exhausted {0} attempts")]
     Serialization(u32),
@@ -232,11 +245,12 @@ async fn try_post(pool: &PgPool, req: &PostRequest) -> Result<Outcome, PostError
 
     // Insert the entry header.
     let entry_id: i64 = sqlx::query_scalar(
-        "INSERT INTO journal_entries (journal_id, entry_date, memo, reference) \
-         VALUES ($1, $2, $3, $4) RETURNING id",
+        "INSERT INTO journal_entries (journal_id, entry_date, effective_date, memo, reference) \
+         VALUES ($1, $2, COALESCE($3, $2), $4, $5) RETURNING id",
     )
     .bind(journal_id)
     .bind(req.entry_date)
+    .bind(req.effective_date)
     .bind(&req.memo)
     .bind(&req.reference)
     .fetch_one(&mut *tx)
@@ -338,6 +352,9 @@ fn inputs_hash(req: &PostRequest) -> String {
     hasher.update(req.idempotency_key.as_bytes());
     hasher.update(req.journal_code.as_bytes());
     hasher.update(req.entry_date.to_string().as_bytes());
+    if let Some(d) = req.effective_date {
+        hasher.update(d.to_string().as_bytes());
+    }
     hasher.update(req.memo.as_deref().unwrap_or("").as_bytes());
     hasher.update(req.reference.as_deref().unwrap_or("").as_bytes());
     for line in &req.lines {
@@ -363,6 +380,9 @@ fn classify(e: sqlx::Error) -> PostError {
         let message = db.message().to_string();
         match code.as_deref() {
             Some("40001") | Some("40P01") => return PostError::Serialization(0),
+            Some("P0001") if message.contains("PERIOD_CLOSED") => {
+                return PostError::PeriodClosed { message };
+            }
             Some("P0001") if message.contains("UNBALANCED_ENTRY") => {
                 return PostError::Unbalanced { message };
             }

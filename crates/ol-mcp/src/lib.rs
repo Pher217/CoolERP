@@ -50,6 +50,8 @@ pub struct PostJournalEntryParams {
     pub journal_code: String,
     /// ISO date of the entry (YYYY-MM-DD).
     pub entry_date: String,
+    /// Economic date determining the fiscal period (YYYY-MM-DD). Defaults to entry_date when absent.
+    pub effective_date: Option<String>,
     /// Optional memo / narrative.
     pub memo: Option<String>,
     /// Optional external reference (invoice number, etc.).
@@ -162,6 +164,16 @@ impl LedgerHandler {
         let entry_date = NaiveDate::parse_from_str(&params.entry_date, "%Y-%m-%d")
             .map_err(|e| format!("VALIDATION: invalid entry_date (expected YYYY-MM-DD): {e}"))?;
 
+        let effective_date = params
+            .effective_date
+            .as_deref()
+            .map(|s| {
+                NaiveDate::parse_from_str(s, "%Y-%m-%d").map_err(|e| {
+                    format!("VALIDATION: invalid effective_date (expected YYYY-MM-DD): {e}")
+                })
+            })
+            .transpose()?;
+
         let lines: Vec<Line> = params
             .lines
             .into_iter()
@@ -176,6 +188,7 @@ impl LedgerHandler {
             idempotency_key: params.idempotency_key,
             journal_code: params.journal_code,
             entry_date,
+            effective_date,
             memo: params.memo,
             reference: params.reference,
             actor: params.actor,
@@ -287,6 +300,16 @@ fn post_error_to_string(e: PostError) -> String {
             ApiError::new(ErrorCode::UnbalancedEntry, message.clone())
         }
         PostError::AppendOnly { message } => ApiError::new(ErrorCode::AppendOnly, message.clone()),
+        PostError::PeriodClosed { message } => {
+            ApiError::new(ErrorCode::PeriodClosed, message.clone())
+        }
+        PostError::PeriodOverlap { message } => {
+            ApiError::new(ErrorCode::Validation, message.clone())
+        }
+        PostError::PeriodNotFound(code) => ApiError::new(
+            ErrorCode::Validation,
+            format!("fiscal period not found: {code}"),
+        ),
         PostError::Serialization(n) => ApiError::new(
             ErrorCode::SerializationFailure,
             format!("exhausted {n} retry attempts"),
