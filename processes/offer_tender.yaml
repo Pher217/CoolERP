@@ -1,0 +1,20 @@
+# Business-process source-of-truth (version-controlled, diffable, machine-legible).
+# The lifecycle of an offer or tender submission.
+process: offer_tender
+states: [draft, submitted, shortlisted, awarded, rejected]
+transitions:
+  - from: draft
+    to: submitted
+    capability: submit_offer
+  - from: submitted
+    to: shortlisted
+    capability: shortlist
+  - from: shortlisted
+    to: awarded
+    capability: award
+  - from: shortlisted
+    to: rejected
+    capability: reject
+  - from: submitted
+    to: rejected
+    capability: decline

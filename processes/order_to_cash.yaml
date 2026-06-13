@@ -1,0 +1,27 @@
+# Business-process source-of-truth (version-controlled, diffable, machine-legible).
+# The order-to-cash lifecycle, including revenue recognition and payment.
+process: order_to_cash
+states: [quote, order, delivered, invoiced, paid, cancelled]
+transitions:
+  - from: quote
+    to: order
+    capability: confirm_order
+  - from: order
+    to: delivered
+    capability: deliver
+  - from: delivered
+    to: invoiced
+    capability: post_invoice
+    posting_rule:
+      debit: accounts_receivable
+      credit: [sales_revenue, tax_payable]
+    guards: [lines_nonempty, totals_balance]
+  - from: invoiced
+    to: paid
+    capability: register_payment
+    posting_rule:
+      debit: cash
+      credit: accounts_receivable
+  - from: quote
+    to: cancelled
+    capability: cancel

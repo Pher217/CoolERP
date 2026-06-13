@@ -65,7 +65,11 @@ function MessageBubble({ msg }: { msg: Message }) {
 
 // ─── ChatPanel ────────────────────────────────────────────────────────────────
 
-export function ChatPanel() {
+type ChatPanelProps = {
+  onView?: (module: string, focus?: string | null) => void
+}
+
+export function ChatPanel({ onView }: ChatPanelProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
@@ -94,6 +98,9 @@ export function ChatPanel() {
 
     try {
       const resp = await api.chat(text, history)
+      if (resp.view) {
+        onView?.(resp.view.module, resp.view.focus)
+      }
       const assistantMsg: Message = {
         role: 'assistant',
         content: resp.reply,

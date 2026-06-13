@@ -1,0 +1,20 @@
+# Business-process source-of-truth (version-controlled, diffable, machine-legible).
+# The quote-to-contract negotiation lifecycle.
+process: quote_to_contract
+states: [quote, negotiation, contract_prep, signed, lost]
+transitions:
+  - from: quote
+    to: negotiation
+    capability: open_negotiation
+  - from: negotiation
+    to: contract_prep
+    capability: prepare_contract
+  - from: contract_prep
+    to: signed
+    capability: sign_contract
+  - from: negotiation
+    to: lost
+    capability: lose_deal
+  - from: quote
+    to: lost
+    capability: abandon

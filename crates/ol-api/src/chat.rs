@@ -45,11 +45,20 @@ pub struct ChatAction {
     pub error: Option<String>,
 }
 
+/// View directive returned to the client so the UI can switch modules/focus.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ViewDirective {
+    pub module: String,
+    pub focus: Option<String>,
+}
+
 /// Response body for `POST /chat`.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ChatResponse {
     pub reply: String,
     pub actions: Vec<ChatAction>,
+    #[serde(default)]
+    pub view: Option<ViewDirective>,
 }
 
 // ─── Tool executor ────────────────────────────────────────────────────────────
@@ -160,6 +169,57 @@ pub async fn dispatch_tool(
             }
         }
 
+        "show_view" => {
+            let module = args["module"]
+                .as_str()
+                .ok_or_else(|| "missing module".to_string())?;
+            if !matches!(module, "ledger" | "inventory" | "workflows") {
+                return Err(format!("invalid module: {module}"));
+            }
+            let focus = args["focus"].as_str().map(ToOwned::to_owned);
+            Ok(serde_json::json!({
+                "ok": true,
+                "module": module,
+                "focus": focus,
+            }))
+        }
+
+        "list_inventory" => {
+            let rows = crate::list_inventory_rows(pool)
+                .await
+                .map_err(|e| format!("database error: {e}"))?;
+            serde_json::to_value(rows).map_err(|e| format!("serialization error: {e}"))
+        }
+
+        "receive_stock" => {
+            let sku = args["sku"]
+                .as_str()
+                .ok_or_else(|| "missing sku".to_string())?
+                .to_string();
+            let location_code = args["location_code"]
+                .as_str()
+                .ok_or_else(|| "missing location_code".to_string())?
+                .to_string();
+            let qty = args["qty"]
+                .as_str()
+                .ok_or_else(|| "missing qty".to_string())?
+                .to_string();
+            let unit_cost = args["unit_cost"].as_str().map(ToOwned::to_owned);
+
+            let resp = crate::receive_stock_core(
+                pool,
+                crate::ReceiveStockRequest {
+                    sku,
+                    location_code,
+                    qty,
+                    unit_cost,
+                },
+            )
+            .await?;
+
+            serde_json::to_value(resp).map_err(|e| format!("serialization error: {e}"))
+        }
+
         unknown => Err(format!("unknown tool: {unknown}")),
     }
 }
@@ -237,6 +297,70 @@ fn tools() -> serde_json::Value {
                     "required": ["journal_code", "entry_date", "lines"]
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "show_view",
+                "description": "Switch the on-screen view to a different module. \
+                                Use this when the user asks to open ledger, inventory, or workflows.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "module": {
+                            "type": "string",
+                            "enum": ["ledger", "inventory", "workflows"],
+                            "description": "Module to show"
+                        },
+                        "focus": {
+                            "type": "string",
+                            "description": "Optional focus within the module, e.g. an account code or SKU"
+                        }
+                    },
+                    "required": ["module"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_inventory",
+                "description": "List all inventory items with their current on-hand quantities.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "receive_stock",
+                "description": "Receive stock into a location. \
+                                Quantity is a decimal string parsed by the database as NUMERIC.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "sku": {
+                            "type": "string",
+                            "description": "Item SKU, e.g. \"WIDGET-A\""
+                        },
+                        "location_code": {
+                            "type": "string",
+                            "description": "Location code, e.g. \"MAIN\""
+                        },
+                        "qty": {
+                            "type": "string",
+                            "description": "Quantity as a decimal string, e.g. \"12.5000\""
+                        },
+                        "unit_cost": {
+                            "type": "string",
+                            "description": "Optional unit cost as a decimal string"
+                        }
+                    },
+                    "required": ["sku", "location_code", "qty"]
+                }
+            }
         }
     ])
 }
@@ -247,6 +371,8 @@ const SYSTEM_PROMPT: &str = "You are the OpenERP assistant. You operate a double
 accounting ledger by calling tools. NEVER compute balances yourself — call \
 get_account_balance. To record money movement, call post_journal_entry with lines \
 whose debits equal credits within each currency (amounts are integer cents: 100 = 1.00). \
+You can switch the on-screen view with show_view (modules: ledger, inventory, workflows) \
+and read or operate inventory with list_inventory and receive_stock. \
 The ledger enforces correctness and will reject anything invalid — if a tool returns an \
 error, read it and explain it plainly. Be concise. When you have done what was asked, \
 give a one or two sentence summary.";
@@ -321,6 +447,7 @@ pub async fn chat(State(pool): State<PgPool>, Json(req): Json<ChatRequest>) -> i
     let client = reqwest::Client::new();
     let mut actions: Vec<ChatAction> = Vec::new();
     let mut reply = String::new();
+    let mut view: Option<ViewDirective> = None;
 
     // Tool loop — max 6 iterations.
     'outer: for _ in 0..6 {
@@ -343,7 +470,15 @@ pub async fn chat(State(pool): State<PgPool>, Json(req): Json<ChatRequest>) -> i
                     "The AI assistant is currently offline (could not reach Ollama: {e}). \
                      Please start Ollama and try again."
                 );
-                return (StatusCode::OK, Json(ChatResponse { reply, actions })).into_response();
+                return (
+                    StatusCode::OK,
+                    Json(ChatResponse {
+                        reply,
+                        actions,
+                        view,
+                    }),
+                )
+                    .into_response();
             }
         };
 
@@ -354,7 +489,15 @@ pub async fn chat(State(pool): State<PgPool>, Json(req): Json<ChatRequest>) -> i
                     "The AI assistant returned an unexpected response: {e}. \
                      Check that the model is loaded in Ollama."
                 );
-                return (StatusCode::OK, Json(ChatResponse { reply, actions })).into_response();
+                return (
+                    StatusCode::OK,
+                    Json(ChatResponse {
+                        reply,
+                        actions,
+                        view,
+                    }),
+                )
+                    .into_response();
             }
         };
 
@@ -410,6 +553,16 @@ pub async fn chat(State(pool): State<PgPool>, Json(req): Json<ChatRequest>) -> i
                 Err(e) => (None, Some(e.clone()), format!("ERROR: {e}")),
             };
 
+            // A show_view call also drives the client-side view directive.
+            if tc.function.name == "show_view" {
+                if let Some(module) = args["module"].as_str() {
+                    view = Some(ViewDirective {
+                        module: module.to_string(),
+                        focus: args["focus"].as_str().map(ToOwned::to_owned),
+                    });
+                }
+            }
+
             actions.push(ChatAction {
                 tool: tc.function.name.clone(),
                 args: args.clone(),
@@ -429,7 +582,15 @@ pub async fn chat(State(pool): State<PgPool>, Json(req): Json<ChatRequest>) -> i
             "I completed the requested operations. Check the actions list for details.".to_string();
     }
 
-    (StatusCode::OK, Json(ChatResponse { reply, actions })).into_response()
+    (
+        StatusCode::OK,
+        Json(ChatResponse {
+            reply,
+            actions,
+            view,
+        }),
+    )
+        .into_response()
 }
 
 // ─── Process dir helper (shared with lib.rs) ──────────────────────────────────
