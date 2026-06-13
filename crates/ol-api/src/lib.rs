@@ -8,6 +8,7 @@
 //! TODO: OAuth PKCE (ADR-006)
 
 pub mod chat;
+pub mod metrics;
 
 use axum::{
     Json,
@@ -45,6 +46,8 @@ pub fn app(pool: PgPool) -> axum::Router {
         .routes(routes!(get_inventory))
         .routes(routes!(receive_stock))
         .routes(routes!(chat::chat))
+        .routes(routes!(metrics::get_overview))
+        .routes(routes!(metrics::get_ar_aging))
         .split_for_parts();
 
     router
@@ -86,6 +89,9 @@ pub fn app(pool: PgPool) -> axum::Router {
         chat::ChatResponse,
         chat::ChatAction,
         chat::ViewDirective,
+        metrics::OverviewResponse,
+        metrics::AgingBucket,
+        metrics::ArAgingResponse,
     ))
 )]
 struct ApiDoc;
