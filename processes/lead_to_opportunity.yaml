@@ -18,3 +18,48 @@ transitions:
   - from: qualified
     to: lost
     capability: disqualify
+steps:
+  - state: new
+    description: Capture a new lead and its source before qualification starts.
+    fields:
+      - name: company_name
+        label: Company name
+        type: text
+        required: true
+      - name: lead_source
+        label: Lead source
+        type: select
+  - state: qualified
+    description: Confirm fit, buying intent, budget, and the next commercial action.
+    fields:
+      - name: qualification_score
+        label: Qualification score
+        type: number
+        required: true
+      - name: next_contact_date
+        label: Next contact date
+        type: date
+  - state: opportunity
+    description: Convert the qualified lead into a tracked pipeline opportunity.
+    fields:
+      - name: estimated_value
+        label: Estimated value
+        type: money
+        required: true
+      - name: expected_close_date
+        label: Expected close date
+        type: date
+  - state: won
+    description: Mark the opportunity as won and hand it over to quote, order, or contract preparation.
+    fields:
+      - name: won_date
+        label: Won date
+        type: date
+        required: true
+  - state: lost
+    description: Close the lead or opportunity with a reason for pipeline analytics.
+    fields:
+      - name: loss_reason
+        label: Loss reason
+        type: select
+        required: true

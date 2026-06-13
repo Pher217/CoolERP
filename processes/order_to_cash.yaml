@@ -1,15 +1,39 @@
 # Business-process source-of-truth (version-controlled, diffable, machine-legible).
 # The order-to-cash lifecycle, including revenue recognition and payment.
 process: order_to_cash
-states: [quote, order, delivered, invoiced, paid, cancelled]
+states:
+  [
+    inquiry,
+    so_open,
+    credit_check,
+    confirmed,
+    fulfillment,
+    shipped,
+    invoiced,
+    payment_pending,
+    cleared,
+    return,
+  ]
 transitions:
-  - from: quote
-    to: order
+  - from: inquiry
+    to: so_open
     capability: confirm_order
-  - from: order
-    to: delivered
+  - from: so_open
+    to: credit_check
+    capability: run_credit_check
+  - from: credit_check
+    to: confirmed
+    capability: release_credit_hold
+  - from: confirmed
+    to: fulfillment
+    capability: allocate_inventory
+  - from: fulfillment
+    to: shipped
     capability: deliver
-  - from: delivered
+    posting_rule:
+      debit: cost_of_goods_sold
+      credit: inventory
+  - from: shipped
     to: invoiced
     capability: post_invoice
     posting_rule:
@@ -17,11 +41,188 @@ transitions:
       credit: [sales_revenue, tax_payable]
     guards: [lines_nonempty, totals_balance]
   - from: invoiced
-    to: paid
+    to: payment_pending
+    capability: send_invoice
+  - from: payment_pending
+    to: cleared
     capability: register_payment
     posting_rule:
       debit: cash
       credit: accounts_receivable
-  - from: quote
-    to: cancelled
-    capability: cancel
+  - from: shipped
+    to: return
+    capability: authorize_return
+  - from: invoiced
+    to: return
+    capability: issue_credit_memo
+steps:
+  - state: inquiry
+    description: Capture a buyer request, qualify fit, and identify the requested products or services before a sales order is opened.
+    fields:
+      - name: customer_name
+        label: Customer name
+        type: text
+        required: true
+      - name: requested_delivery_date
+        label: Requested delivery date
+        type: date
+      - name: expected_value
+        label: Expected value
+        type: money
+    documents: [customer_inquiry, product_configuration]
+    gates: [customer or prospect must be identifiable]
+    kpis: [inquiry_response_time, quote_conversion_rate]
+  - state: so_open
+    description: Create and price the sales order, confirm tax treatment, and reserve the commercial terms for approval.
+    fields:
+      - name: sales_order_number
+        label: Sales order number
+        type: text
+        required: true
+      - name: payment_terms
+        label: Payment terms
+        type: select
+        required: true
+      - name: order_total
+        label: Order total
+        type: money
+        required: true
+    documents: [sales_order, order_acknowledgement]
+    gates: [price and tax codes approved before confirmation]
+    kpis: [order_entry_accuracy, order_cycle_time]
+  - state: credit_check
+    description: Evaluate customer credit exposure against the approved limit before the order can be confirmed.
+    fields:
+      - name: credit_limit
+        label: Credit limit
+        type: money
+        required: true
+      - name: current_exposure
+        label: Current exposure
+        type: money
+        required: true
+      - name: decision
+        label: Credit decision
+        type: select
+        required: true
+    documents: [credit_report, credit_approval]
+    gates: [credit hold if exposure over limit, finance approval required for override]
+    kpis: [credit_hold_rate, approval_turnaround_time]
+  - state: confirmed
+    description: Commit the customer order, lock commercial terms, and release demand to fulfillment planning.
+    fields:
+      - name: confirmed_date
+        label: Confirmed date
+        type: date
+        required: true
+      - name: customer_po
+        label: Customer PO
+        type: text
+      - name: promised_ship_date
+        label: Promised ship date
+        type: date
+    documents: [order_confirmation, customer_purchase_order]
+    gates: [material availability and credit release completed]
+    kpis: [confirmation_lead_time, promise_date_adherence]
+  - state: fulfillment
+    description: Pick, pack, and stage inventory or services for shipment against the confirmed sales order.
+    fields:
+      - name: warehouse
+        label: Warehouse
+        type: text
+        required: true
+      - name: picked_quantity
+        label: Picked quantity
+        type: number
+        required: true
+      - name: backorder_quantity
+        label: Backorder quantity
+        type: number
+    documents: [pick_list, packing_slip]
+    gates: [inventory allocated before shipment, quality hold cleared]
+    kpis: [pick_accuracy, fill_rate]
+  - state: shipped
+    description: Confirm dispatch, create delivery evidence, and recognize the inventory movement from COGS to Inventory according to the shipping event.
+    fields:
+      - name: carrier
+        label: Carrier
+        type: text
+      - name: tracking_number
+        label: Tracking number
+        type: text
+      - name: ship_date
+        label: Ship date
+        type: date
+        required: true
+    documents: [delivery_note, bill_of_lading, proof_of_delivery]
+    gates: [delivery note issued, shipment quantity reconciles to picked quantity]
+    kpis: [on_time_delivery, fill_rate]
+  - state: invoiced
+    description: Issue the customer invoice and post receivables, revenue, and tax after delivery evidence is available.
+    fields:
+      - name: invoice_number
+        label: Invoice number
+        type: text
+        required: true
+      - name: invoice_date
+        label: Invoice date
+        type: date
+        required: true
+      - name: tax_amount
+        label: Tax amount
+        type: money
+    documents: [invoice, tax_invoice]
+    gates: [invoice totals match shipped quantities, AR->Revenue and AR->Tax posting balanced]
+    kpis: [billing_cycle_time, invoice_accuracy]
+  - state: payment_pending
+    description: Monitor open receivables, collections activity, and expected cash receipt until payment clears.
+    fields:
+      - name: due_date
+        label: Due date
+        type: date
+        required: true
+      - name: outstanding_amount
+        label: Outstanding amount
+        type: money
+        required: true
+      - name: collection_status
+        label: Collection status
+        type: select
+    documents: [customer_statement, dunning_notice]
+    gates: [collections escalation when overdue]
+    kpis: [DSO, overdue_ar, collection_effectiveness]
+  - state: cleared
+    description: Match cash receipt to the invoice, clear accounts receivable, and close the order-to-cash cycle.
+    fields:
+      - name: payment_reference
+        label: Payment reference
+        type: text
+        required: true
+      - name: cleared_date
+        label: Cleared date
+        type: date
+        required: true
+      - name: cash_account
+        label: Cash account
+        type: text
+        required: true
+    documents: [bank_statement, remittance_advice, payment_receipt]
+    gates: [Cash->AR posting balanced, payment matched to invoice]
+    kpis: [DSO, order_cycle_time, cash_application_accuracy]
+  - state: return
+    description: Authorize returned goods or commercial credit, reverse inventory or revenue impacts, and close the exception trail.
+    fields:
+      - name: return_authorization
+        label: Return authorization
+        type: text
+        required: true
+      - name: return_reason
+        label: Return reason
+        type: select
+        required: true
+      - name: credit_amount
+        label: Credit amount
+        type: money
+    documents: [return_material_authorization, credit_memo]
+    gates: [return approved, credit memo matched to original invoice]
+    kpis: [return_rate, credit_memo_cycle_time]

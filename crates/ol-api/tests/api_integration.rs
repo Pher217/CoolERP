@@ -165,6 +165,30 @@ async fn get_customer_invoice_process_returns_200_with_mermaid(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../../migrations")]
+async fn get_order_to_cash_process_returns_steps(pool: PgPool) {
+    let (status, body) = get(pool, "/processes/order_to_cash").await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+
+    let steps = body["steps"].as_array().expect("steps must be array");
+    assert!(!steps.is_empty(), "steps must not be empty");
+
+    let credit_check = steps
+        .iter()
+        .find(|step| step["state"] == "credit_check")
+        .expect("credit_check step should be present");
+    let fields = credit_check["fields"]
+        .as_array()
+        .expect("fields must be array");
+
+    assert!(fields.iter().any(|field| {
+        field["name"] == "current_exposure"
+            && field["label"] == "Current exposure"
+            && field["type"] == "money"
+            && field["required"] == true
+    }));
+}
+
+#[sqlx::test(migrations = "../../migrations")]
 async fn unknown_process_returns_404_with_error_envelope(pool: PgPool) {
     let (status, body) = get(pool, "/processes/does_not_exist").await;
     assert_eq!(status, StatusCode::NOT_FOUND, "body={body}");

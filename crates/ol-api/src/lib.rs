@@ -77,6 +77,8 @@ pub fn app(pool: PgPool) -> axum::Router {
         ListProcessesResponse,
         ProcessResponse,
         TransitionResponse,
+        StepDetailResponse,
+        StepFieldResponse,
         InventoryItem,
         InventoryResponse,
         ReceiveStockRequest,
@@ -654,6 +656,8 @@ pub struct ProcessResponse {
     pub states: Vec<String>,
     /// State transitions with optional capability labels.
     pub transitions: Vec<TransitionResponse>,
+    /// Optional rich UI metadata for each process step.
+    pub steps: Vec<StepDetailResponse>,
     /// Mermaid `stateDiagram-v2` source for the full workflow.
     pub mermaid: String,
 }
@@ -664,6 +668,27 @@ pub struct TransitionResponse {
     pub from: String,
     pub to: String,
     pub capability: Option<String>,
+}
+
+/// Rich UI metadata for a process state.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct StepDetailResponse {
+    pub state: String,
+    pub description: Option<String>,
+    pub fields: Vec<StepFieldResponse>,
+    pub documents: Vec<String>,
+    pub gates: Vec<String>,
+    pub kpis: Vec<String>,
+}
+
+/// Field captured while a process step is active.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct StepFieldResponse {
+    pub name: String,
+    pub label: String,
+    #[serde(rename = "type")]
+    pub field_type: String,
+    pub required: bool,
 }
 
 /// Get a process by name.
@@ -726,6 +751,27 @@ pub async fn get_process(Path(name): Path<String>) -> impl IntoResponse {
                 from: t.from.clone(),
                 to: t.to.clone(),
                 capability: t.capability.clone(),
+            })
+            .collect(),
+        steps: process
+            .steps
+            .iter()
+            .map(|s| StepDetailResponse {
+                state: s.state.clone(),
+                description: s.description.clone(),
+                fields: s
+                    .fields
+                    .iter()
+                    .map(|f| StepFieldResponse {
+                        name: f.name.clone(),
+                        label: f.label.clone(),
+                        field_type: f.field_type.clone(),
+                        required: f.required,
+                    })
+                    .collect(),
+                documents: s.documents.clone(),
+                gates: s.gates.clone(),
+                kpis: s.kpis.clone(),
             })
             .collect(),
         mermaid,
