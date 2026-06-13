@@ -82,9 +82,25 @@ export type ChatAction = {
   error?: string
 }
 
+export type ChatView = {
+  module: 'ledger' | 'inventory' | 'workflows'
+  focus?: string | null
+}
+
 export type ChatResponse = {
   reply: string
   actions: ChatAction[]
+  view?: ChatView | null
+}
+
+export type InventoryItem = {
+  sku: string
+  name: string
+  on_hand: string
+}
+
+export type InventoryResponse = {
+  items: InventoryItem[]
 }
 
 export class ApiError extends Error {
@@ -144,6 +160,11 @@ export const api = {
   /** GET /accounts/{code}/balance */
   accountBalance(code: string | number): Promise<BalanceResponse> {
     return get<BalanceResponse>(`/accounts/${code}/balance`)
+  },
+
+  /** GET /inventory */
+  inventory(): Promise<InventoryResponse> {
+    return get<InventoryResponse>('/inventory')
   },
 
   /** GET /processes */

@@ -1,0 +1,26 @@
+# Business-process source-of-truth (version-controlled, diffable, machine-legible).
+# The purchase-to-pay lifecycle, including inventory receipt and payment.
+process: purchase_to_pay
+states: [requisition, po, received, billed, paid, cancelled]
+transitions:
+  - from: requisition
+    to: po
+    capability: approve_po
+  - from: po
+    to: received
+    capability: receive_goods
+    posting_rule:
+      debit: inventory
+      credit: accounts_payable
+  - from: received
+    to: billed
+    capability: record_bill
+  - from: billed
+    to: paid
+    capability: pay_bill
+    posting_rule:
+      debit: accounts_payable
+      credit: cash
+  - from: requisition
+    to: cancelled
+    capability: cancel

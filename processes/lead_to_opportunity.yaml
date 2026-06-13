@@ -1,0 +1,20 @@
+# Business-process source-of-truth (version-controlled, diffable, machine-legible).
+# The lifecycle of a lead becoming an opportunity.
+process: lead_to_opportunity
+states: [new, qualified, opportunity, won, lost]
+transitions:
+  - from: new
+    to: qualified
+    capability: qualify_lead
+  - from: qualified
+    to: opportunity
+    capability: create_opportunity
+  - from: opportunity
+    to: won
+    capability: mark_won
+  - from: opportunity
+    to: lost
+    capability: mark_lost
+  - from: qualified
+    to: lost
+    capability: disqualify

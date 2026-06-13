@@ -1,60 +1,26 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, type HealthResponse } from './api/client.ts'
-import { AccountsPanel } from './components/AccountsPanel.tsx'
-import { WorkflowView } from './components/WorkflowView.tsx'
-import { PostEntryForm } from './components/PostEntryForm.tsx'
+import { useCallback, useRef, useState } from 'react'
 import { ChatPanel } from './components/ChatPanel.tsx'
+import { ViewRouter, type View } from './components/ViewRouter.tsx'
 import './App.css'
 
-type BackendStatus = 'checking' | 'ok' | 'unreachable'
-
-function BackendStatusWidget() {
-  const [status, setStatus] = useState<BackendStatus>('checking')
-  const [detail, setDetail] = useState<HealthResponse | null>(null)
-
-  useEffect(() => {
-    api
-      .health()
-      .then((r) => {
-        setDetail(r)
-        setStatus('ok')
-      })
-      .catch(() => setStatus('unreachable'))
-  }, [])
-
-  const badge =
-    status === 'checking'
-      ? { label: 'Checking…', color: '#94a3b8' }
-      : status === 'ok'
-        ? { label: 'Online', color: '#22c55e' }
-        : { label: 'Unreachable', color: '#ef4444' }
-
-  return (
-    <div className="widget">
-      <h2>Backend status</h2>
-      <span className="badge" style={{ backgroundColor: badge.color }}>
-        {badge.label}
-      </span>
-      {detail && (
-        <p className="detail">
-          API response: <code>{JSON.stringify(detail)}</code>
-        </p>
-      )}
-      {status === 'unreachable' && (
-        <p className="detail muted">
-          Start ol-api on {import.meta.env.VITE_API_BASE ?? 'http://localhost:3000'} to connect.
-        </p>
-      )}
-    </div>
-  )
-}
-
 export default function App() {
+  const [activeView, setActiveView] = useState<View>('ledger')
+
   // accountsPanelRef allows PostEntryForm to trigger a balances refresh
   const refreshBalancesRef = useRef<() => void>(() => {})
 
   const registerRefresh = useCallback((fn: () => void) => {
     refreshBalancesRef.current = fn
+  }, [])
+
+  const handlePostSuccess = useCallback(() => {
+    refreshBalancesRef.current()
+  }, [])
+
+  const handleView = useCallback((module: string) => {
+    if (module === 'ledger' || module === 'inventory' || module === 'workflows') {
+      setActiveView(module)
+    }
   }, [])
 
   return (
@@ -63,12 +29,18 @@ export default function App() {
         <span className="logo">OpenERP</span>
         <span className="tagline">Correct by construction · Agent-native by design</span>
       </header>
-      <main className="dashboard">
-        <BackendStatusWidget />
-        <AccountsPanel onRegisterRefresh={registerRefresh} />
-        <PostEntryForm onSuccess={() => refreshBalancesRef.current()} />
-        <WorkflowView />
-        <ChatPanel />
+      <main className="workspace">
+        <div className="workspace-left">
+          <ViewRouter
+            activeView={activeView}
+            onChangeView={setActiveView}
+            onRegisterRefresh={registerRefresh}
+            onPostSuccess={handlePostSuccess}
+          />
+        </div>
+        <div className="workspace-right">
+          <ChatPanel onView={handleView} />
+        </div>
       </main>
     </div>
   )
