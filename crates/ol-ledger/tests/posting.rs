@@ -26,6 +26,7 @@ fn req(key: Uuid, lines: Vec<Line>) -> PostRequest {
         idempotency_key: key,
         journal_code: "GEN".into(),
         entry_date: "2026-05-29".parse().unwrap(),
+        effective_date: None,
         memo: Some("test".into()),
         reference: None,
         actor: "test-actor".into(),
@@ -259,7 +260,7 @@ async fn db_trigger_rejects_single_line(pool: PgPool) -> TestResult {
 
     let mut tx = pool.begin().await?;
     let eid: i64 = sqlx::query_scalar(
-        "INSERT INTO journal_entries (journal_id, entry_date) VALUES ($1, '2026-05-29') RETURNING id",
+        "INSERT INTO journal_entries (journal_id, entry_date, effective_date) VALUES ($1, '2026-05-29', '2026-05-29') RETURNING id",
     )
     .bind(jid)
     .fetch_one(&mut *tx)
@@ -291,7 +292,7 @@ async fn db_trigger_rejects_unbalanced(pool: PgPool) -> TestResult {
 
     let mut tx = pool.begin().await?;
     let eid: i64 = sqlx::query_scalar(
-        "INSERT INTO journal_entries (journal_id, entry_date) VALUES ($1, '2026-05-29') RETURNING id",
+        "INSERT INTO journal_entries (journal_id, entry_date, effective_date) VALUES ($1, '2026-05-29', '2026-05-29') RETURNING id",
     )
     .bind(jid)
     .fetch_one(&mut *tx)
@@ -326,7 +327,7 @@ async fn db_trigger_rejects_empty_entry(pool: PgPool) -> TestResult {
         .await?;
 
     let mut tx = pool.begin().await?;
-    sqlx::query("INSERT INTO journal_entries (journal_id, entry_date) VALUES ($1, '2026-05-29')")
+    sqlx::query("INSERT INTO journal_entries (journal_id, entry_date, effective_date) VALUES ($1, '2026-05-29', '2026-05-29')")
         .bind(jid)
         .execute(&mut *tx)
         .await?;
