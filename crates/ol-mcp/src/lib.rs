@@ -39,6 +39,8 @@ pub struct LineParam {
     pub debit: i64,
     /// Credit amount in integer cents. Exactly one of debit/credit must be non-zero.
     pub credit: i64,
+    /// ISO-4217 currency code (e.g. "EUR", "USD"). Defaults to "EUR" when absent.
+    pub currency: Option<String>,
 }
 
 /// Parameters for `post_journal_entry`.
@@ -177,10 +179,13 @@ impl LedgerHandler {
         let lines: Vec<Line> = params
             .lines
             .into_iter()
-            .map(|l| Line {
-                account_code: l.account_code,
-                debit: l.debit,
-                credit: l.credit,
+            .map(|l| {
+                Line::in_currency(
+                    l.account_code,
+                    l.debit,
+                    l.credit,
+                    l.currency.unwrap_or_else(|| "EUR".into()),
+                )
             })
             .collect();
 

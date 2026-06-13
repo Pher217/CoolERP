@@ -261,13 +261,14 @@ async fn try_post(pool: &PgPool, req: &PostRequest) -> Result<Outcome, PostError
     for line in &req.lines {
         let account_id = id_of[line.account_code.as_str()];
         sqlx::query(
-            "INSERT INTO journal_lines (entry_id, account_id, debit, credit) \
-             VALUES ($1, $2, $3, $4)",
+            "INSERT INTO journal_lines (entry_id, account_id, debit, credit, currency) \
+             VALUES ($1, $2, $3, $4, $5)",
         )
         .bind(entry_id)
         .bind(account_id)
         .bind(line.debit)
         .bind(line.credit)
+        .bind(&line.currency)
         .execute(&mut *tx)
         .await
         .map_err(classify)?;
@@ -314,6 +315,9 @@ async fn try_post(pool: &PgPool, req: &PostRequest) -> Result<Outcome, PostError
 
 /// Read an account's balance: raw debit/credit sums and the type-normalized
 /// signed balance. Returns zeros for an account with no lines.
+///
+/// Note: sums across all currencies. Per-currency balances arrive with
+/// materialized balances (PR-G3).
 pub async fn account_balance(pool: &PgPool, account_code: &str) -> Result<Balance, PostError> {
     let row: Option<(String, i64, i64)> = sqlx::query_as(
         "SELECT a.type::text, \
@@ -361,6 +365,7 @@ fn inputs_hash(req: &PostRequest) -> String {
         hasher.update(line.account_code.as_bytes());
         hasher.update(line.debit.to_le_bytes());
         hasher.update(line.credit.to_le_bytes());
+        hasher.update(line.currency.as_bytes());
     }
     let digest = hasher.finalize();
     let mut hex = String::with_capacity(digest.len() * 2);

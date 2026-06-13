@@ -245,6 +245,10 @@ pub async fn get_balance(
 
 // ─── POST /journal-entries ────────────────────────────────────────────────────
 
+fn default_currency() -> String {
+    "EUR".into()
+}
+
 /// A single journal line in a POST request.  Exactly one of `debit`/`credit`
 /// must be non-zero; both are integer cents (i64).
 #[derive(Debug, Deserialize, ToSchema)]
@@ -256,6 +260,9 @@ pub struct LineRequest {
     /// Credit amount in cents. Mutually exclusive with `debit`.
     #[schema(value_type = i64, format = Int64)]
     pub credit: i64,
+    /// ISO-4217 currency code. Defaults to "EUR" when absent.
+    #[serde(default = "default_currency")]
+    pub currency: String,
 }
 
 /// Request body for `POST /journal-entries`.
@@ -329,11 +336,7 @@ pub async fn create_journal_entry(
         lines: body
             .lines
             .into_iter()
-            .map(|l| Line {
-                account_code: l.account_code,
-                debit: l.debit,
-                credit: l.credit,
-            })
+            .map(|l| Line::in_currency(l.account_code, l.debit, l.credit, l.currency))
             .collect(),
     };
 

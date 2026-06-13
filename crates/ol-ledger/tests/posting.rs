@@ -14,11 +14,7 @@ use uuid::Uuid;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 fn line(code: &str, debit: i64, credit: i64) -> Line {
-    Line {
-        account_code: code.into(),
-        debit,
-        credit,
-    }
+    Line::new(code, debit, credit)
 }
 
 fn req(key: Uuid, lines: Vec<Line>) -> PostRequest {
@@ -266,7 +262,7 @@ async fn db_trigger_rejects_single_line(pool: PgPool) -> TestResult {
     .fetch_one(&mut *tx)
     .await?;
     sqlx::query(
-        "INSERT INTO journal_lines (entry_id, account_id, debit, credit) VALUES ($1, $2, 100, 0)",
+        "INSERT INTO journal_lines (entry_id, account_id, debit, credit, currency) VALUES ($1, $2, 100, 0, 'EUR')",
     )
     .bind(eid)
     .bind(cash)
@@ -298,14 +294,14 @@ async fn db_trigger_rejects_unbalanced(pool: PgPool) -> TestResult {
     .fetch_one(&mut *tx)
     .await?;
     sqlx::query(
-        "INSERT INTO journal_lines (entry_id, account_id, debit, credit) VALUES ($1, $2, 100, 0)",
+        "INSERT INTO journal_lines (entry_id, account_id, debit, credit, currency) VALUES ($1, $2, 100, 0, 'EUR')",
     )
     .bind(eid)
     .bind(cash)
     .execute(&mut *tx)
     .await?;
     sqlx::query(
-        "INSERT INTO journal_lines (entry_id, account_id, debit, credit) VALUES ($1, $2, 0, 90)",
+        "INSERT INTO journal_lines (entry_id, account_id, debit, credit, currency) VALUES ($1, $2, 0, 90, 'EUR')",
     )
     .bind(eid)
     .bind(sales)

@@ -150,12 +150,12 @@ async fn main() {
     }
 }
 
-/// Parse a line spec "CODE:DEBIT:CREDIT" into a [`Line`].
-/// Debit and credit are integer cents (i64).
+/// Parse a line spec "CODE:DEBIT:CREDIT[:CURRENCY]" into a [`Line`].
+/// Debit and credit are integer cents (i64). Currency defaults to "EUR" when absent.
 fn parse_line(s: &str) -> Result<Line, String> {
-    let parts: Vec<&str> = s.splitn(3, ':').collect();
-    if parts.len() != 3 {
-        return Err("expected CODE:DEBIT:CREDIT".into());
+    let parts: Vec<&str> = s.splitn(4, ':').collect();
+    if parts.len() < 3 {
+        return Err("expected CODE:DEBIT:CREDIT[:CURRENCY]".into());
     }
     let account_code = parts[0].trim().to_string();
     if account_code.is_empty() {
@@ -169,11 +169,12 @@ fn parse_line(s: &str) -> Result<Line, String> {
         .trim()
         .parse()
         .map_err(|e| format!("credit is not an integer: {e}"))?;
-    Ok(Line {
-        account_code,
-        debit,
-        credit,
-    })
+    let currency = parts
+        .get(3)
+        .map(|c| c.trim().to_string())
+        .filter(|c| !c.is_empty())
+        .unwrap_or_else(|| "EUR".into());
+    Ok(Line::in_currency(account_code, debit, credit, currency))
 }
 
 /// Connect to Postgres using DATABASE_URL from the environment.
