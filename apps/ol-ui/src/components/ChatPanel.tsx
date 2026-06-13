@@ -128,10 +128,12 @@ export function ChatPanel({ onView }: ChatPanelProps) {
   }
 
   return (
-    <div className="widget chat-panel">
-      <h2>AI Assistant</h2>
+    <div className="chat-panel flex h-full flex-col overflow-hidden bg-white">
+      <h2 className="px-4 pt-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
+        AI Assistant
+      </h2>
 
-      <div className="chat-messages">
+      <div className="chat-messages max-h-none flex-1 overflow-y-auto px-4 py-3">
         {messages.length === 0 && (
           <p className="muted chat-empty">
             Ask about balances, or say "post €100 from 1000 to 4000 today".
@@ -148,9 +150,9 @@ export function ChatPanel({ onView }: ChatPanelProps) {
         <div ref={bottomRef} />
       </div>
 
-      <div className="chat-input-row">
+      <div className="chat-input-row border-t border-slate-200 bg-slate-50 px-4 py-3">
         <input
-          className="chat-input"
+          className="chat-input flex-1"
           type="text"
           placeholder="Ask the assistant…"
           value={input}
