@@ -84,18 +84,21 @@ export function AccountsPanel({ onRegisterRefresh }: Props) {
           {loading ? 'Loading…' : 'Refresh'}
         </button>
       </div>
-      <table className="accounts-table">
+      <table className="w-full border-collapse text-sm">
         <thead>
-          <tr>
-            <th>Code</th>
-            <th>Balance</th>
+          <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <th className="py-2 pr-2">Code</th>
+            <th className="py-2 pl-2 text-right">Balance</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className="text-slate-700">
           {rows.map(({ code, balance, error }) => (
-            <tr key={code}>
-              <td>{code}</td>
-              <td>
+            <tr
+              key={code}
+              className="border-b border-slate-100 transition-colors hover:bg-slate-50"
+            >
+              <td className="py-2 pr-2">{code}</td>
+              <td className="py-2 pl-2 text-right tabular-nums">
                 {error ? (
                   <span className="muted">—</span>
                 ) : balance === null ? (
