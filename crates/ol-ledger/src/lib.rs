@@ -73,6 +73,7 @@ pub struct PostResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Balance {
     pub account_code: String,
+    pub currency: String,
     pub debits: Cents,
     pub credits: Cents,
     pub balance: Cents,
@@ -261,13 +262,14 @@ async fn try_post(pool: &PgPool, req: &PostRequest) -> Result<Outcome, PostError
     for line in &req.lines {
         let account_id = id_of[line.account_code.as_str()];
         sqlx::query(
-            "INSERT INTO journal_lines (entry_id, account_id, debit, credit) \
-             VALUES ($1, $2, $3, $4)",
+            "INSERT INTO journal_lines (entry_id, account_id, debit, credit, currency) \
+             VALUES ($1, $2, $3, $4, $5)",
         )
         .bind(entry_id)
         .bind(account_id)
         .bind(line.debit)
         .bind(line.credit)
+        .bind(&line.currency)
         .execute(&mut *tx)
         .await
         .map_err(classify)?;
@@ -312,23 +314,25 @@ async fn try_post(pool: &PgPool, req: &PostRequest) -> Result<Outcome, PostError
     Ok(Outcome::Done(result))
 }
 
-/// Read an account's balance: raw debit/credit sums and the type-normalized
-/// signed balance. Returns zeros for an account with no lines.
+/// Read an account's balance from the O(1) materialized cache for the
+/// account's native currency (accounts.currency).
+///
+/// Returns zero debits/credits when the account exists but has no posted lines.
 pub async fn account_balance(pool: &PgPool, account_code: &str) -> Result<Balance, PostError> {
-    let row: Option<(String, i64, i64)> = sqlx::query_as(
-        "SELECT a.type::text, \
-                COALESCE(SUM(l.debit), 0)::bigint, \
-                COALESCE(SUM(l.credit), 0)::bigint \
+    let row: Option<(String, String, i64, i64)> = sqlx::query_as(
+        "SELECT a.type::text, a.currency, \
+                COALESCE(b.debits,  0)::bigint, \
+                COALESCE(b.credits, 0)::bigint \
            FROM accounts a \
-           LEFT JOIN journal_lines l ON l.account_id = a.id \
-          WHERE a.code = $1 \
-          GROUP BY a.id, a.type",
+           LEFT JOIN account_balances b \
+                  ON b.account_id = a.id AND b.currency = a.currency \
+          WHERE a.code = $1",
     )
     .bind(account_code)
     .fetch_optional(pool)
     .await?;
 
-    let (acct_type, debits, credits) =
+    let (acct_type, currency, debits, credits) =
         row.ok_or_else(|| PostError::AccountNotFound(account_code.to_string()))?;
 
     // Assets and expenses are debit-positive; liabilities, equity, income are
@@ -340,10 +344,58 @@ pub async fn account_balance(pool: &PgPool, account_code: &str) -> Result<Balanc
 
     Ok(Balance {
         account_code: account_code.to_string(),
+        currency,
         debits,
         credits,
         balance,
     })
+}
+
+/// Return all per-currency balances for an account from the materialized cache,
+/// ordered by currency. Returns an empty Vec when the account exists but has no
+/// posted lines. Returns `PostError::AccountNotFound` when the code is unknown.
+pub async fn account_balances_all(
+    pool: &PgPool,
+    account_code: &str,
+) -> Result<Vec<Balance>, PostError> {
+    // Check existence first so we can distinguish "no lines" from "unknown account".
+    let exists: Option<i32> = sqlx::query_scalar("SELECT 1 FROM accounts WHERE code = $1")
+        .bind(account_code)
+        .fetch_optional(pool)
+        .await?;
+    if exists.is_none() {
+        return Err(PostError::AccountNotFound(account_code.to_string()));
+    }
+
+    let rows: Vec<(String, String, i64, i64)> = sqlx::query_as(
+        "SELECT a.type::text, b.currency, b.debits::bigint, b.credits::bigint \
+           FROM accounts a \
+           JOIN account_balances b ON b.account_id = a.id \
+          WHERE a.code = $1 \
+          ORDER BY b.currency",
+    )
+    .bind(account_code)
+    .fetch_all(pool)
+    .await?;
+
+    let balances = rows
+        .into_iter()
+        .map(|(acct_type, currency, debits, credits)| {
+            let balance = match acct_type.as_str() {
+                "asset" | "expense" => debits - credits,
+                _ => credits - debits,
+            };
+            Balance {
+                account_code: account_code.to_string(),
+                currency,
+                debits,
+                credits,
+                balance,
+            }
+        })
+        .collect();
+
+    Ok(balances)
 }
 
 /// SHA-256 of the canonical request inputs, hex-encoded, for the audit trail.
@@ -361,6 +413,7 @@ fn inputs_hash(req: &PostRequest) -> String {
         hasher.update(line.account_code.as_bytes());
         hasher.update(line.debit.to_le_bytes());
         hasher.update(line.credit.to_le_bytes());
+        hasher.update(line.currency.as_bytes());
     }
     let digest = hasher.finalize();
     let mut hex = String::with_capacity(digest.len() * 2);

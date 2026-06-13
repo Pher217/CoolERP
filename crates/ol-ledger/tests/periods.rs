@@ -15,11 +15,7 @@ use uuid::Uuid;
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
 fn line(code: &str, debit: i64, credit: i64) -> Line {
-    Line {
-        account_code: code.into(),
-        debit,
-        credit,
-    }
+    Line::new(code, debit, credit)
 }
 
 fn req_with_effective(key: Uuid, effective: Option<chrono::NaiveDate>) -> PostRequest {
