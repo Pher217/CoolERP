@@ -70,6 +70,23 @@ export type ProcessDetailResponse = {
   mermaid: string
 }
 
+export type ChatTurn = {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export type ChatAction = {
+  tool: string
+  args: Record<string, unknown>
+  result?: unknown
+  error?: string
+}
+
+export type ChatResponse = {
+  reply: string
+  actions: ChatAction[]
+}
+
 export class ApiError extends Error {
   status: number
   code?: string
@@ -151,5 +168,14 @@ export const api = {
       idempotency_key: crypto.randomUUID(),
     }
     return post<PostJournalEntryResponse>('/journal-entries', payload)
+  },
+
+  /**
+   * POST /chat
+   * Send a message to the AI assistant with optional conversation history.
+   * Returns the assistant reply and any ledger actions taken.
+   */
+  chat(message: string, history: ChatTurn[] = []): Promise<ChatResponse> {
+    return post<ChatResponse>('/chat', { message, history })
   },
 }

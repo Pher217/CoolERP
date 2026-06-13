@@ -7,6 +7,8 @@
 //! Auth is intentionally absent in this skeleton (ADR-008 dev token).
 //! TODO: OAuth PKCE (ADR-006)
 
+pub mod chat;
+
 use axum::{
     Json,
     extract::{Path, State},
@@ -40,6 +42,7 @@ pub fn app(pool: PgPool) -> axum::Router {
         .routes(routes!(create_journal_entry))
         .routes(routes!(list_processes))
         .routes(routes!(get_process))
+        .routes(routes!(chat::chat))
         .split_for_parts();
 
     router
@@ -47,6 +50,9 @@ pub fn app(pool: PgPool) -> axum::Router {
             "/api-docs/openapi.json",
             get(move || async move { Json(api) }),
         )
+        // Permissive CORS for local/dev (browser SPA on a different origin).
+        // Tighten to the known UI origin when the OAuth layer lands (ADR-006).
+        .layer(tower_http::cors::CorsLayer::permissive())
         .with_state(pool)
 }
 
@@ -69,6 +75,10 @@ pub fn app(pool: PgPool) -> axum::Router {
         ListProcessesResponse,
         ProcessResponse,
         TransitionResponse,
+        chat::ChatRequest,
+        chat::ChatTurn,
+        chat::ChatResponse,
+        chat::ChatAction,
     ))
 )]
 struct ApiDoc;

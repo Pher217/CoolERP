@@ -3,6 +3,7 @@ import { api, type HealthResponse } from './api/client.ts'
 import { AccountsPanel } from './components/AccountsPanel.tsx'
 import { WorkflowView } from './components/WorkflowView.tsx'
 import { PostEntryForm } from './components/PostEntryForm.tsx'
+import { ChatPanel } from './components/ChatPanel.tsx'
 import './App.css'
 
 type BackendStatus = 'checking' | 'ok' | 'unreachable'
@@ -67,6 +68,7 @@ export default function App() {
         <AccountsPanel onRegisterRefresh={registerRefresh} />
         <PostEntryForm onSuccess={() => refreshBalancesRef.current()} />
         <WorkflowView />
+        <ChatPanel />
       </main>
     </div>
   )
