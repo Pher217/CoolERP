@@ -16,7 +16,9 @@ use axum::{
 };
 use chrono::NaiveDate;
 use ol_domain::Line;
-use ol_ledger::{PostError, PostRequest, PostResult, account_balance, post_journal_entry};
+use ol_ledger::{
+    PostError, PostRequest, PostResult, account_balance, account_balances_all, post_journal_entry,
+};
 use ol_process::Process;
 use ol_sdk::{ApiError, ErrorCode, ErrorEnvelope};
 use serde::{Deserialize, Serialize};
@@ -34,6 +36,7 @@ pub fn app(pool: PgPool) -> axum::Router {
     let (router, api) = OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(health))
         .routes(routes!(get_balance))
+        .routes(routes!(get_balances_all))
         .routes(routes!(create_journal_entry))
         .routes(routes!(list_processes))
         .routes(routes!(get_process))
@@ -199,6 +202,8 @@ pub async fn health() -> Json<HealthResponse> {
 pub struct BalanceResponse {
     /// Account code (e.g. "1000").
     pub account_code: String,
+    /// ISO-4217 currency code (e.g. "EUR").
+    pub currency: String,
     /// Total debits posted to this account, in cents.
     #[schema(value_type = i64, format = Int64)]
     pub debits: i64,
@@ -233,12 +238,48 @@ pub async fn get_balance(
             StatusCode::OK,
             Json(BalanceResponse {
                 account_code: bal.account_code,
+                currency: bal.currency,
                 debits: bal.debits,
                 credits: bal.credits,
                 balance: bal.balance,
             }),
         )
             .into_response(),
+        Err(e) => post_error_response(e).into_response(),
+    }
+}
+
+/// Get all per-currency balances for an account by code.
+#[utoipa::path(
+    get,
+    path = "/accounts/{code}/balances",
+    params(
+        ("code" = String, Path, description = "Account code, e.g. \"1000\"")
+    ),
+    responses(
+        (status = 200, description = "All currency balances for the account", body = Vec<BalanceResponse>),
+        (status = 404, description = "Account not found", body = ErrorBody),
+        (status = 500, description = "Database error", body = ErrorBody),
+    )
+)]
+pub async fn get_balances_all(
+    State(pool): State<PgPool>,
+    Path(code): Path<String>,
+) -> impl IntoResponse {
+    match account_balances_all(&pool, &code).await {
+        Ok(bals) => {
+            let resp: Vec<BalanceResponse> = bals
+                .into_iter()
+                .map(|b| BalanceResponse {
+                    account_code: b.account_code,
+                    currency: b.currency,
+                    debits: b.debits,
+                    credits: b.credits,
+                    balance: b.balance,
+                })
+                .collect();
+            (StatusCode::OK, Json(resp)).into_response()
+        }
         Err(e) => post_error_response(e).into_response(),
     }
 }

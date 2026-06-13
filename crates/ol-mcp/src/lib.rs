@@ -94,6 +94,8 @@ pub struct PostJournalEntryResult {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct AccountBalanceResult {
     pub account_code: String,
+    /// ISO-4217 currency code (e.g. "EUR").
+    pub currency: String,
     /// Raw debit sum (integer cents).
     pub debits: i64,
     /// Raw credit sum (integer cents).
@@ -233,12 +235,14 @@ impl LedgerHandler {
             .map(
                 |Balance {
                      account_code,
+                     currency,
                      debits,
                      credits,
                      balance,
                  }| {
                     Json(AccountBalanceResult {
                         account_code,
+                        currency,
                         debits,
                         credits,
                         balance,

@@ -137,6 +137,7 @@ async fn main() {
             match account_balance(&pool, &code).await {
                 Ok(b) => {
                     println!("account_code={}", b.account_code);
+                    println!("currency={}", b.currency);
                     println!("debits={}", b.debits);
                     println!("credits={}", b.credits);
                     println!("balance={}", b.balance);

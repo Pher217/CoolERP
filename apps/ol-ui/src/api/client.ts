@@ -14,6 +14,8 @@ export type HealthResponse = {
 
 export type BalanceResponse = {
   account_code: string
+  /** ISO-4217 currency code (e.g. "EUR"). */
+  currency: string
   /** Total debits in integer cents. */
   debits: number
   /** Total credits in integer cents. */

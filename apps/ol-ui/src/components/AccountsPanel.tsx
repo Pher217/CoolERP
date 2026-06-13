@@ -101,7 +101,7 @@ export function AccountsPanel({ onRegisterRefresh }: Props) {
                 ) : balance === null ? (
                   <span className="muted">Loading…</span>
                 ) : (
-                  formatMoney(balance.balance, 'EUR', 'en-US')
+                  formatMoney(balance.balance, balance.currency, 'en-US')
                 )}
               </td>
             </tr>
