@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
-import mermaid from 'mermaid'
+import { useEffect, useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -19,9 +18,8 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Skeleton } from '@/components/ui/skeleton'
+import { MermaidDiagram } from './MermaidDiagram.tsx'
 import { api, type ProcessDetailResponse } from '../api/client.ts'
-
-mermaid.initialize({ startOnLoad: false, theme: 'neutral' })
 
 type LoadState =
   | { status: 'idle' }
@@ -29,27 +27,6 @@ type LoadState =
   | { status: 'ok'; data: ProcessDetailResponse }
   | { status: 'error'; message: string }
   | { status: 'offline' }
-
-let mermaidIdCounter = 0
-
-function MermaidDiagram({ chart }: { chart: string }) {
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!ref.current) return
-    const id = `mermaid-${++mermaidIdCounter}`
-    mermaid
-      .render(id, chart)
-      .then(({ svg }) => {
-        if (ref.current) ref.current.innerHTML = svg
-      })
-      .catch(() => {
-        if (ref.current) ref.current.textContent = 'Diagram render failed.'
-      })
-  }, [chart])
-
-  return <div ref={ref} className="overflow-x-auto rounded-lg border bg-muted/30 p-4" />
-}
 
 export function WorkflowView() {
   const [processes, setProcesses] = useState<string[]>([])

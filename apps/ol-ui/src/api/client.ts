@@ -59,15 +59,42 @@ export type ProcessListResponse = {
   processes: string[]
 }
 
+export type PostingRule = {
+  debit: string
+  credit: string
+}
+
+export type ProcessTransition = {
+  from: string
+  to: string
+  capability?: string
+  posting_rule?: PostingRule
+  guards?: string[]
+}
+
+export type ProcessStep = {
+  state: string
+  description?: string
+  fields: Array<{
+    name: string
+    label: string
+    field_type: string
+    required: boolean
+  }>
+  documents: string[]
+  gates: string[]
+  kpis: string[]
+}
+
 export type ProcessDetailResponse = {
+  /** Canonical process name (preferred). */
+  name: string
+  /** Legacy alias kept for backwards compatibility. */
   process: string
   states: string[]
-  transitions: Array<{
-    from: string
-    to: string
-    capability?: string
-  }>
+  transitions: ProcessTransition[]
   mermaid: string
+  steps: ProcessStep[]
 }
 
 export type ChatTurn = {
@@ -83,7 +110,7 @@ export type ChatAction = {
 }
 
 export type ChatView = {
-  module: 'ledger' | 'inventory' | 'workflows'
+  module: 'ledger' | 'inventory' | 'workflows' | 'processes'
   focus?: string | null
 }
 

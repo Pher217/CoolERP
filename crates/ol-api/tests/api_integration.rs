@@ -183,7 +183,7 @@ async fn get_order_to_cash_process_returns_steps(pool: PgPool) {
     assert!(fields.iter().any(|field| {
         field["name"] == "current_exposure"
             && field["label"] == "Current exposure"
-            && field["type"] == "money"
+            && field["field_type"] == "money"
             && field["required"] == true
     }));
 }

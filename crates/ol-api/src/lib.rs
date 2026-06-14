@@ -80,6 +80,7 @@ pub fn app(pool: PgPool) -> axum::Router {
         ListProcessesResponse,
         ProcessResponse,
         TransitionResponse,
+        PostingRuleResponse,
         StepDetailResponse,
         StepFieldResponse,
         InventoryItem,
@@ -674,6 +675,20 @@ pub struct TransitionResponse {
     pub from: String,
     pub to: String,
     pub capability: Option<String>,
+    /// Guard expressions that must pass before this transition fires.
+    #[serde(default)]
+    pub guards: Vec<String>,
+    /// GL posting rule triggered when this transition fires.
+    pub posting_rule: Option<PostingRuleResponse>,
+}
+
+/// GL posting rule: debit one account, credit one or more accounts.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PostingRuleResponse {
+    /// Account code to debit.
+    pub debit: String,
+    /// Account code(s) to credit.  Multiple accounts are joined with ", ".
+    pub credit: String,
 }
 
 /// Rich UI metadata for a process state.
@@ -692,7 +707,6 @@ pub struct StepDetailResponse {
 pub struct StepFieldResponse {
     pub name: String,
     pub label: String,
-    #[serde(rename = "type")]
     pub field_type: String,
     pub required: bool,
 }
@@ -757,6 +771,14 @@ pub async fn get_process(Path(name): Path<String>) -> impl IntoResponse {
                 from: t.from.clone(),
                 to: t.to.clone(),
                 capability: t.capability.clone(),
+                guards: t.guards.clone().unwrap_or_default(),
+                posting_rule: t.posting_rule.as_ref().map(|pr| PostingRuleResponse {
+                    debit: pr.debit.clone(),
+                    credit: match &pr.credit {
+                        ol_process::CreditTarget::Single(s) => s.clone(),
+                        ol_process::CreditTarget::Multiple(v) => v.join(", "),
+                    },
+                }),
             })
             .collect(),
         steps: process

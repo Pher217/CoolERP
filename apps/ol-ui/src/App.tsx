@@ -7,7 +7,8 @@ import { Accounts } from './pages/Accounts.tsx'
 import { Receivables } from './pages/Receivables.tsx'
 import { Payables } from './pages/Payables.tsx'
 import { InventoryPanel } from './components/InventoryPanel.tsx'
-import { WorkflowView } from './components/WorkflowView.tsx'
+import { ProcessList } from './pages/ProcessList.tsx'
+import { ProcessOverview } from './pages/ProcessOverview.tsx'
 import { Settings } from './pages/Settings.tsx'
 
 export default function App() {
@@ -21,7 +22,8 @@ export default function App() {
           <Route path="receivables" element={<Receivables />} />
           <Route path="payables" element={<Payables />} />
           <Route path="inventory" element={<InventoryPanel />} />
-          <Route path="processes" element={<WorkflowView />} />
+          <Route path="processes" element={<ProcessList />} />
+          <Route path="processes/:name" element={<ProcessOverview />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
