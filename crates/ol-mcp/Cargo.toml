@@ -10,6 +10,7 @@ description = "MCP server: rmcp + Axum + Tokio, OAuth 2.1 PKCE, scoped tokens."
 
 [dependencies]
 ol-domain = { path = "../ol-domain" }
+ol-engine = { path = "../ol-engine" }
 ol-ledger = { path = "../ol-ledger" }
 ol-process = { path = "../ol-process" }
 ol-sdk = { path = "../ol-sdk" }

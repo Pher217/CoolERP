@@ -113,6 +113,8 @@ pub fn app(pool: PgPool) -> axum::Router {
         StepLogResponse,
         GetInstanceResponse,
         ListInstancesQuery,
+        PostingRequirementResponse,
+        AvailableTransitionResponse,
     ))
 )]
 struct ApiDoc;
@@ -654,11 +656,39 @@ impl From<ol_engine::StepLog> for StepLogResponse {
     }
 }
 
+/// Posting amounts required by an available transition.
+///
+/// The caller must include key `"amount"` (the debit total) in the `amounts` map.
+/// For multi-credit transitions, each entry in `credit_roles` must also appear as
+/// a separate key in `amounts`, and their values must sum to `"amount"`.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PostingRequirementResponse {
+    /// The debit role name (for reference; the caller always uses the key `"amount"`).
+    pub debit_role: String,
+    /// Additional per-credit-role keys required in `amounts` (multi-credit only).
+    /// Empty for single-credit transitions.
+    pub credit_roles: Vec<String>,
+}
+
+/// One legal next move from the current state of a process instance.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AvailableTransitionResponse {
+    /// Pass this capability name to `POST /instances/{id}/advance`.
+    pub capability: String,
+    /// The state the instance will move to when this transition fires.
+    pub to_state: String,
+    /// `Some` when this transition requires posting amounts; `null` otherwise.
+    pub posting: Option<PostingRequirementResponse>,
+}
+
 /// Response for `GET /instances/{id}`.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct GetInstanceResponse {
     pub instance: InstanceResponse,
     pub steps: Vec<StepLogResponse>,
+    /// Legal next capabilities from the current state.  Empty when the instance
+    /// is terminal (no outgoing transitions).
+    pub available: Vec<AvailableTransitionResponse>,
 }
 
 /// Request body for `POST /instances`.
@@ -703,10 +733,24 @@ fn engine_error_response(e: EngineError) -> (StatusCode, Json<ErrorEnvelope>) {
             ErrorCode::Validation,
             format!("process not found: {name}"),
         ),
-        EngineError::IllegalTransition { from, capability } => err_response(
+        EngineError::IllegalTransition {
+            from,
+            capability,
+            available,
+        } => err_response(
             StatusCode::CONFLICT,
             ErrorCode::Validation,
-            format!("no transition from '{from}' with capability '{capability}'"),
+            if available.is_empty() {
+                format!(
+                    "no transition from '{from}' with capability '{capability}' (terminal state)"
+                )
+            } else {
+                format!(
+                    "no transition from '{from}' with capability '{capability}'. \
+                     Available from '{from}': {avail}",
+                    avail = available.join(", ")
+                )
+            },
         ),
         EngineError::InstanceNotActive(status) => err_response(
             StatusCode::CONFLICT,
@@ -722,6 +766,24 @@ fn engine_error_response(e: EngineError) -> (StatusCode, Json<ErrorEnvelope>) {
             StatusCode::UNPROCESSABLE_ENTITY,
             ErrorCode::Validation,
             format!("unknown account role: {role}"),
+        ),
+        EngineError::PostingAmountsRequired {
+            capability,
+            debit_role,
+            credit_roles,
+            missing,
+        } => err_response(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            ErrorCode::Validation,
+            format!(
+                "posting step '{capability}' needs amounts in integer cents: \
+                 key 'amount' = the debit total for role '{debit_role}', \
+                 plus one key per credit role [{credit_roles}]; \
+                 all credit amounts must sum to 'amount'. \
+                 Missing: [{missing}].",
+                credit_roles = credit_roles.join(", "),
+                missing = missing.join(", ")
+            ),
         ),
         EngineError::Unbalanced { debit, credit } => err_response(
             StatusCode::UNPROCESSABLE_ENTITY,
@@ -844,10 +906,22 @@ pub async fn list_instances(
 )]
 pub async fn get_instance(State(pool): State<PgPool>, Path(id): Path<i64>) -> impl IntoResponse {
     match ol_engine::get_instance(&pool, id).await {
-        Ok((inst, steps)) => {
+        Ok(result) => {
             let resp = GetInstanceResponse {
-                instance: inst.into(),
-                steps: steps.into_iter().map(Into::into).collect(),
+                instance: result.instance.into(),
+                steps: result.steps.into_iter().map(Into::into).collect(),
+                available: result
+                    .available
+                    .into_iter()
+                    .map(|at| AvailableTransitionResponse {
+                        capability: at.capability,
+                        to_state: at.to_state,
+                        posting: at.posting.map(|p| PostingRequirementResponse {
+                            debit_role: p.debit_role,
+                            credit_roles: p.credit_roles,
+                        }),
+                    })
+                    .collect(),
             };
             (StatusCode::OK, Json(resp)).into_response()
         }

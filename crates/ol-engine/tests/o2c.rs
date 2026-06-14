@@ -5,7 +5,8 @@
 //! engine can load the YAML definitions.
 
 use ol_engine::{
-    AdvanceInput, EngineError, advance_instance, get_instance, list_instances, start_instance,
+    AdvanceInput, EngineError, advance_instance, available_transitions, get_instance,
+    list_instances, start_instance,
 };
 use ol_ledger::account_balance;
 use sqlx::PgPool;
@@ -394,20 +395,36 @@ async fn test_get_and_list_instances(pool: PgPool) {
     advance_no_posting(&pool, a.id, "confirm_order").await;
 
     // get_instance for `a`
-    let (inst_a, steps_a) = get_instance(&pool, a.id).await.expect("get a");
-    assert_eq!(inst_a.current_state, "so_open");
-    assert_eq!(inst_a.reference.as_deref(), Some("REF-A"));
+    let res_a = get_instance(&pool, a.id).await.expect("get a");
+    assert_eq!(res_a.instance.current_state, "so_open");
+    assert_eq!(res_a.instance.reference.as_deref(), Some("REF-A"));
     // start row + confirm_order row
-    assert_eq!(steps_a.len(), 2, "should have start + confirm_order steps");
-    assert_eq!(steps_a[0].capability, "start");
-    assert_eq!(steps_a[1].capability, "confirm_order");
-    assert_eq!(steps_a[1].from_state, "inquiry");
-    assert_eq!(steps_a[1].to_state, "so_open");
+    assert_eq!(
+        res_a.steps.len(),
+        2,
+        "should have start + confirm_order steps"
+    );
+    assert_eq!(res_a.steps[0].capability, "start");
+    assert_eq!(res_a.steps[1].capability, "confirm_order");
+    assert_eq!(res_a.steps[1].from_state, "inquiry");
+    assert_eq!(res_a.steps[1].to_state, "so_open");
+    // so_open has one outgoing transition: run_credit_check
+    assert_eq!(
+        res_a.available.len(),
+        1,
+        "so_open has 1 available transition"
+    );
+    assert_eq!(res_a.available[0].capability, "run_credit_check");
+    assert_eq!(res_a.available[0].to_state, "credit_check");
+    assert!(
+        res_a.available[0].posting.is_none(),
+        "run_credit_check is non-posting"
+    );
 
     // `b` untouched
-    let (inst_b, steps_b) = get_instance(&pool, b.id).await.expect("get b");
-    assert_eq!(inst_b.current_state, "inquiry");
-    assert_eq!(steps_b.len(), 1, "only start row for b");
+    let res_b = get_instance(&pool, b.id).await.expect("get b");
+    assert_eq!(res_b.instance.current_state, "inquiry");
+    assert_eq!(res_b.steps.len(), 1, "only start row for b");
 
     // list all
     let all = list_instances(&pool, Some("order_to_cash"), None)
@@ -473,9 +490,9 @@ async fn test_unbalanced_posting_rejected(pool: PgPool) {
     );
 
     // Instance must still be in `shipped`
-    let (inst, _) = get_instance(&pool, id).await.expect("get instance");
+    let res = get_instance(&pool, id).await.expect("get instance");
     assert_eq!(
-        inst.current_state, "shipped",
+        res.instance.current_state, "shipped",
         "state must not advance on error"
     );
 }
@@ -519,9 +536,9 @@ async fn test_concurrent_advance_posts_exactly_once(pool: PgPool) {
     advance_with_amount(&pool, id, "deliver", 50_000).await;
 
     // Confirm we are at `shipped` before firing the race.
-    let (pre, _) = get_instance(&pool, id).await.expect("pre-race get");
+    let pre = get_instance(&pool, id).await.expect("pre-race get");
     assert_eq!(
-        pre.current_state, "shipped",
+        pre.instance.current_state, "shipped",
         "must be at shipped before race"
     );
 
@@ -618,8 +635,9 @@ async fn test_concurrent_advance_posts_exactly_once(pool: PgPool) {
     );
 
     // ── Exactly one step-log row for `post_invoice` ──────────────────────────
-    let (_, steps) = get_instance(&pool, id).await.expect("get after race");
-    let invoice_steps: Vec<_> = steps
+    let res = get_instance(&pool, id).await.expect("get after race");
+    let invoice_steps: Vec<_> = res
+        .steps
         .iter()
         .filter(|s| s.capability == "post_invoice")
         .collect();
@@ -657,4 +675,359 @@ async fn test_concurrent_advance_posts_exactly_once(pool: PgPool) {
         revenue_line_count, 1,
         "exactly one revenue credit line across all entries (no double-post)"
     );
+}
+
+// ---------------------------------------------------------------------------
+// PostingAmountsRequired: missing credit role keys for multi-credit posting
+// ---------------------------------------------------------------------------
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn test_post_invoice_missing_credit_amounts_returns_posting_amounts_required(pool: PgPool) {
+    /*
+     * GIVEN a process instance at `shipped` (ready for `post_invoice`)
+     * WHEN advance_instance("post_invoice") is called with amounts={"amount":71400}
+     *      (debit total only, credit role keys sales_revenue and tax_payable absent)
+     * THEN Err(PostingAmountsRequired{..}) is returned
+     *      AND the error message names both missing roles
+     *      AND the instance remains in `shipped` (no state advance)
+     */
+    unsafe { std::env::set_var("PROCESSES_DIR", PROCESSES_DIR) };
+
+    let instance = start_instance(&pool, "order_to_cash", None, serde_json::json!({}))
+        .await
+        .expect("start_instance");
+    let id = instance.id;
+
+    advance_no_posting(&pool, id, "confirm_order").await;
+    advance_no_posting(&pool, id, "run_credit_check").await;
+    advance_no_posting(&pool, id, "release_credit_hold").await;
+    advance_no_posting(&pool, id, "allocate_inventory").await;
+    advance_with_amount(&pool, id, "deliver", 10_000).await;
+
+    // In `shipped`. Call post_invoice with only the debit total — credit role keys absent.
+    let mut amounts = HashMap::new();
+    amounts.insert("amount".to_string(), 71_400_i64);
+
+    let result = advance_instance(
+        &pool,
+        id,
+        "post_invoice",
+        "test_actor",
+        AdvanceInput {
+            amounts,
+            context_patch: serde_json::json!({}),
+            entry_date: today(),
+        },
+    )
+    .await;
+
+    match &result {
+        Err(EngineError::PostingAmountsRequired {
+            capability,
+            missing,
+            credit_roles,
+            ..
+        }) => {
+            assert_eq!(capability, "post_invoice");
+            assert!(
+                missing.contains(&"sales_revenue".to_string()),
+                "missing must include 'sales_revenue', got: {missing:?}"
+            );
+            assert!(
+                missing.contains(&"tax_payable".to_string()),
+                "missing must include 'tax_payable', got: {missing:?}"
+            );
+            // The error message must name both credit roles.
+            let msg = result.as_ref().unwrap_err().to_string();
+            assert!(
+                msg.contains("sales_revenue"),
+                "error message must name 'sales_revenue': {msg}"
+            );
+            assert!(
+                msg.contains("tax_payable"),
+                "error message must name 'tax_payable': {msg}"
+            );
+            // credit_roles should list both expected roles.
+            assert!(credit_roles.contains(&"sales_revenue".to_string()));
+            assert!(credit_roles.contains(&"tax_payable".to_string()));
+        }
+        other => panic!("expected PostingAmountsRequired, got: {other:?}"),
+    }
+
+    // Instance must not have advanced.
+    let res = get_instance(&pool, id).await.expect("get instance");
+    assert_eq!(
+        res.instance.current_state, "shipped",
+        "state must not advance when amounts are missing"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// PostingAmountsRequired success path: correct multi-credit amounts post cleanly
+// ---------------------------------------------------------------------------
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn test_post_invoice_with_correct_multi_credit_amounts_posts(pool: PgPool) {
+    /*
+     * GIVEN a process instance at `shipped`
+     * WHEN advance_instance("post_invoice") is called with
+     *      amounts={"amount":71400, "sales_revenue":60000, "tax_payable":11400}
+     * THEN the instance advances to `invoiced`
+     *      AND AR is debited 71400, sales_revenue credited 60000, tax_payable credited 11400
+     */
+    unsafe { std::env::set_var("PROCESSES_DIR", PROCESSES_DIR) };
+
+    let instance = start_instance(&pool, "order_to_cash", None, serde_json::json!({}))
+        .await
+        .expect("start_instance");
+    let id = instance.id;
+
+    advance_no_posting(&pool, id, "confirm_order").await;
+    advance_no_posting(&pool, id, "run_credit_check").await;
+    advance_no_posting(&pool, id, "release_credit_hold").await;
+    advance_no_posting(&pool, id, "allocate_inventory").await;
+    advance_with_amount(&pool, id, "deliver", 10_000).await;
+
+    // Full correct multi-credit amounts.
+    let mut amounts = HashMap::new();
+    amounts.insert("amount".to_string(), 71_400_i64);
+    amounts.insert("sales_revenue".to_string(), 60_000_i64);
+    amounts.insert("tax_payable".to_string(), 11_400_i64);
+
+    let inst = advance_instance(
+        &pool,
+        id,
+        "post_invoice",
+        "test_actor",
+        AdvanceInput {
+            amounts,
+            context_patch: serde_json::json!({}),
+            entry_date: today(),
+        },
+    )
+    .await
+    .expect("post_invoice with correct amounts");
+
+    assert_eq!(inst.current_state, "invoiced");
+
+    // Verify GL postings.
+    let ar_bal = account_balance(&pool, "1100").await.expect("ar balance");
+    assert_eq!(ar_bal.debits, 71_400, "AR debited 71400");
+
+    let rev_bal = account_balance(&pool, "4000")
+        .await
+        .expect("revenue balance");
+    assert_eq!(rev_bal.credits, 60_000, "sales_revenue credited 60000");
+
+    let tax_bal = account_balance(&pool, "2100").await.expect("tax balance");
+    assert_eq!(tax_bal.credits, 11_400, "tax_payable credited 11400");
+}
+
+// ---------------------------------------------------------------------------
+// available_transitions: pure unit tests (no DB needed)
+// ---------------------------------------------------------------------------
+
+/// GIVEN the order_to_cash process definition
+/// WHEN available_transitions is called for state "so_open"
+/// THEN it returns exactly one transition: run_credit_check -> credit_check (non-posting)
+#[test]
+fn test_available_transitions_so_open() {
+    /*
+     * GIVEN the order_to_cash process
+     * WHEN available_transitions("so_open") is called
+     * THEN run_credit_check -> credit_check is the only result, and it has no posting
+     */
+    use ol_process::Process;
+    use std::path::Path;
+
+    let yaml = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../processes/order_to_cash.yaml"),
+    )
+    .expect("order_to_cash.yaml must be readable");
+    let proc = Process::from_yaml(&yaml).expect("must parse");
+
+    let avail = available_transitions(&proc, "so_open");
+
+    assert_eq!(avail.len(), 1, "so_open has exactly 1 outgoing transition");
+    assert_eq!(avail[0].capability, "run_credit_check");
+    assert_eq!(avail[0].to_state, "credit_check");
+    assert!(
+        avail[0].posting.is_none(),
+        "run_credit_check is a non-posting transition"
+    );
+}
+
+/// GIVEN the order_to_cash process definition
+/// WHEN available_transitions is called for state "invoiced"
+/// THEN it returns send_invoice -> payment_pending and issue_credit_memo -> return
+#[test]
+fn test_available_transitions_invoiced_has_send_invoice_and_credit_memo() {
+    /*
+     * GIVEN the order_to_cash process
+     * WHEN available_transitions("invoiced") is called
+     * THEN send_invoice -> payment_pending (non-posting) and
+     *      issue_credit_memo -> return (non-posting) are returned
+     */
+    use ol_process::Process;
+    use std::path::Path;
+
+    let yaml = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../processes/order_to_cash.yaml"),
+    )
+    .expect("order_to_cash.yaml must be readable");
+    let proc = Process::from_yaml(&yaml).expect("must parse");
+
+    let avail = available_transitions(&proc, "invoiced");
+
+    let caps: Vec<&str> = avail.iter().map(|a| a.capability.as_str()).collect();
+    assert!(
+        caps.contains(&"send_invoice"),
+        "must include send_invoice, got: {caps:?}"
+    );
+    assert!(
+        caps.contains(&"issue_credit_memo"),
+        "must include issue_credit_memo, got: {caps:?}"
+    );
+
+    let send = avail
+        .iter()
+        .find(|a| a.capability == "send_invoice")
+        .unwrap();
+    assert_eq!(send.to_state, "payment_pending");
+    assert!(send.posting.is_none(), "send_invoice is non-posting");
+
+    let memo = avail
+        .iter()
+        .find(|a| a.capability == "issue_credit_memo")
+        .unwrap();
+    assert_eq!(memo.to_state, "return");
+}
+
+/// GIVEN the order_to_cash process definition
+/// WHEN available_transitions is called for a terminal state "cleared"
+/// THEN the result is empty
+#[test]
+fn test_available_transitions_terminal_state_is_empty() {
+    /*
+     * GIVEN the order_to_cash process
+     * WHEN available_transitions("cleared") is called
+     * THEN the result is empty (terminal state)
+     */
+    use ol_process::Process;
+    use std::path::Path;
+
+    let yaml = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../processes/order_to_cash.yaml"),
+    )
+    .expect("order_to_cash.yaml must be readable");
+    let proc = Process::from_yaml(&yaml).expect("must parse");
+
+    let avail = available_transitions(&proc, "cleared");
+    assert!(
+        avail.is_empty(),
+        "cleared is terminal — no available transitions"
+    );
+}
+
+/// GIVEN the order_to_cash process definition
+/// WHEN available_transitions is called for "fulfillment"
+/// THEN the result includes deliver -> shipped with a posting requirement
+#[test]
+fn test_available_transitions_posting_transition_exposes_posting_requirement() {
+    /*
+     * GIVEN the order_to_cash process
+     * WHEN available_transitions("fulfillment") is called
+     * THEN deliver -> shipped is present with posting.debit_role = "cost_of_goods_sold"
+     */
+    use ol_process::Process;
+    use std::path::Path;
+
+    let yaml = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../processes/order_to_cash.yaml"),
+    )
+    .expect("order_to_cash.yaml must be readable");
+    let proc = Process::from_yaml(&yaml).expect("must parse");
+
+    let avail = available_transitions(&proc, "fulfillment");
+
+    assert_eq!(avail.len(), 1, "fulfillment has exactly 1 transition");
+    let deliver = &avail[0];
+    assert_eq!(deliver.capability, "deliver");
+    assert_eq!(deliver.to_state, "shipped");
+
+    let posting = deliver
+        .posting
+        .as_ref()
+        .expect("deliver must have a posting requirement");
+    assert_eq!(posting.debit_role, "cost_of_goods_sold");
+    // Single credit: credit_roles is empty (only "amount" key needed)
+    assert!(
+        posting.credit_roles.is_empty(),
+        "single-credit posting has no extra credit roles, got: {:?}",
+        posting.credit_roles
+    );
+}
+
+// ---------------------------------------------------------------------------
+// IllegalTransition: enriched error message lists available capabilities
+// ---------------------------------------------------------------------------
+
+#[sqlx::test(migrations = "../../migrations")]
+async fn test_illegal_transition_error_lists_available_capabilities(pool: PgPool) {
+    /*
+     * GIVEN a process instance at state "so_open"
+     * WHEN an illegal capability is attempted (e.g. "credit_check" — a state, not a capability)
+     * THEN IllegalTransition is returned and its Display message names
+     *      the real capability: "run_credit_check -> credit_check"
+     */
+    unsafe { std::env::set_var("PROCESSES_DIR", PROCESSES_DIR) };
+
+    let instance = start_instance(&pool, "order_to_cash", None, serde_json::json!({}))
+        .await
+        .expect("start_instance");
+    let id = instance.id;
+
+    // Advance to so_open
+    advance_no_posting(&pool, id, "confirm_order").await;
+
+    // Try "credit_check" (a state name, not a capability) — classic AI mistake
+    let result = advance_instance(
+        &pool,
+        id,
+        "credit_check",
+        "test_actor",
+        AdvanceInput {
+            amounts: HashMap::new(),
+            context_patch: serde_json::json!({}),
+            entry_date: today(),
+        },
+    )
+    .await;
+
+    match &result {
+        Err(EngineError::IllegalTransition {
+            from,
+            capability,
+            available,
+        }) => {
+            assert_eq!(from, "so_open");
+            assert_eq!(capability, "credit_check");
+            // The available list must contain the real capability name
+            assert!(
+                available.iter().any(|s| s.contains("run_credit_check")),
+                "available list must contain 'run_credit_check', got: {available:?}"
+            );
+            // The Display message must contain the hint
+            let msg = result.as_ref().unwrap_err().to_string();
+            assert!(
+                msg.contains("run_credit_check"),
+                "error message must name 'run_credit_check': {msg}"
+            );
+            assert!(
+                msg.contains("so_open"),
+                "error message must name the current state: {msg}"
+            );
+        }
+        other => panic!("expected IllegalTransition, got: {other:?}"),
+    }
 }
