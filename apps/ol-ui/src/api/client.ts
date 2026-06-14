@@ -130,6 +130,31 @@ export type InventoryResponse = {
   items: InventoryItem[]
 }
 
+export type MetricsOverviewResponse = {
+  /** Integer cents. */
+  cash_cents: number
+  /** Integer cents. */
+  revenue_cents: number
+  /** Integer cents. */
+  expenses_cents: number
+  /** Integer cents. */
+  ar_cents: number
+  /** Integer cents. */
+  ap_cents: number
+  account_count: number
+}
+
+export type ArAgingBucket = {
+  /** Label e.g. "current", "1-30", "31-60", "61-90", "90+" */
+  label: string
+  /** Integer cents. */
+  total_cents: number
+}
+
+export type ArAgingResponse = {
+  buckets: ArAgingBucket[]
+}
+
 export class ApiError extends Error {
   status: number
   code?: string
@@ -225,5 +250,15 @@ export const api = {
    */
   chat(message: string, history: ChatTurn[] = []): Promise<ChatResponse> {
     return post<ChatResponse>('/chat', { message, history })
+  },
+
+  /** GET /metrics/overview */
+  metricsOverview(): Promise<MetricsOverviewResponse> {
+    return get<MetricsOverviewResponse>('/metrics/overview')
+  },
+
+  /** GET /metrics/ar-aging */
+  arAging(): Promise<ArAgingResponse> {
+    return get<ArAgingResponse>('/metrics/ar-aging')
   },
 }
