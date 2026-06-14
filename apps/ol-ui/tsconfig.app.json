@@ -8,6 +8,11 @@
     "skipLibCheck": true,
 
     /* Bundler mode */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
