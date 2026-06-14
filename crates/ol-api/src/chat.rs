@@ -9,8 +9,9 @@
 //! in `tests/chat_dispatch.rs`.
 
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
-use chrono::NaiveDate;
+use chrono::{Local, NaiveDate};
 use ol_domain::Line;
+use ol_engine::{AdvanceInput, advance_instance, get_instance, list_instances, start_instance};
 use ol_ledger::{PostError, PostRequest, account_balance, post_journal_entry};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -220,6 +221,160 @@ pub async fn dispatch_tool(
             serde_json::to_value(resp).map_err(|e| format!("serialization error: {e}"))
         }
 
+        "start_process" => {
+            let process = args["process"]
+                .as_str()
+                .ok_or_else(|| "missing process".to_string())?
+                .to_string();
+            let reference = args["reference"].as_str().map(ToOwned::to_owned);
+            let context = args["context"].clone();
+            let context = if context.is_null() {
+                serde_json::Value::Object(Default::default())
+            } else {
+                context
+            };
+
+            let inst = start_instance(pool, &process, reference, context)
+                .await
+                .map_err(|e| e.to_string())?;
+
+            serde_json::to_value(serde_json::json!({
+                "id": inst.id,
+                "process": inst.process,
+                "current_state": inst.current_state,
+                "status": inst.status,
+                "reference": inst.reference,
+                "context": inst.context,
+            }))
+            .map_err(|e| format!("serialization error: {e}"))
+        }
+
+        "advance_process" => {
+            let instance_id = args["instance_id"]
+                .as_i64()
+                .ok_or_else(|| "missing instance_id (integer)".to_string())?;
+            let capability = args["capability"]
+                .as_str()
+                .ok_or_else(|| "missing capability".to_string())?
+                .to_string();
+
+            let amounts: std::collections::HashMap<String, i64> = args["amounts"]
+                .as_object()
+                .map(|obj| {
+                    obj.iter()
+                        .filter_map(|(k, v)| v.as_i64().map(|n| (k.clone(), n)))
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            let context_patch = args["context_patch"].clone();
+            let context_patch = if context_patch.is_null() {
+                serde_json::Value::Object(Default::default())
+            } else {
+                context_patch
+            };
+
+            let entry_date = Local::now().date_naive();
+
+            let input = AdvanceInput {
+                amounts,
+                context_patch,
+                entry_date,
+            };
+
+            let inst = advance_instance(pool, instance_id, &capability, "ai-chat", input)
+                .await
+                .map_err(|e| e.to_string())?;
+
+            serde_json::to_value(serde_json::json!({
+                "id": inst.id,
+                "process": inst.process,
+                "current_state": inst.current_state,
+                "status": inst.status,
+                "reference": inst.reference,
+                "context": inst.context,
+            }))
+            .map_err(|e| format!("serialization error: {e}"))
+        }
+
+        "get_process_instance" => {
+            let instance_id = args["instance_id"]
+                .as_i64()
+                .ok_or_else(|| "missing instance_id (integer)".to_string())?;
+
+            let result = get_instance(pool, instance_id)
+                .await
+                .map_err(|e| e.to_string())?;
+
+            let steps_val: Vec<serde_json::Value> = result
+                .steps
+                .into_iter()
+                .map(|s| {
+                    serde_json::json!({
+                        "id": s.id,
+                        "from_state": s.from_state,
+                        "to_state": s.to_state,
+                        "capability": s.capability,
+                        "actor": s.actor,
+                        "entry_id": s.entry_id,
+                    })
+                })
+                .collect();
+
+            // Serialize available transitions so the LLM knows the legal next moves.
+            let available_val: Vec<serde_json::Value> = result
+                .available
+                .into_iter()
+                .map(|at| {
+                    serde_json::json!({
+                        "capability": at.capability,
+                        "to_state": at.to_state,
+                        "posting": at.posting.map(|p| serde_json::json!({
+                            "debit_role": p.debit_role,
+                            "credit_roles": p.credit_roles,
+                        })),
+                    })
+                })
+                .collect();
+
+            let inst = result.instance;
+            serde_json::to_value(serde_json::json!({
+                "id": inst.id,
+                "process": inst.process,
+                "current_state": inst.current_state,
+                "status": inst.status,
+                "reference": inst.reference,
+                "context": inst.context,
+                "steps": steps_val,
+                "available": available_val,
+            }))
+            .map_err(|e| format!("serialization error: {e}"))
+        }
+
+        "list_process_instances" => {
+            let process = args["process"].as_str();
+            let status = args["status"].as_str();
+
+            let list = list_instances(pool, process, status)
+                .await
+                .map_err(|e| e.to_string())?;
+
+            let vals: Vec<serde_json::Value> = list
+                .into_iter()
+                .map(|inst| {
+                    serde_json::json!({
+                        "id": inst.id,
+                        "process": inst.process,
+                        "current_state": inst.current_state,
+                        "status": inst.status,
+                        "reference": inst.reference,
+                    })
+                })
+                .collect();
+
+            serde_json::to_value(vals).map_err(|e| format!("serialization error: {e}"))
+        }
+
         unknown => Err(format!("unknown tool: {unknown}")),
     }
 }
@@ -361,6 +516,120 @@ fn tools() -> serde_json::Value {
                     "required": ["sku", "location_code", "qty"]
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "start_process",
+                "description": "Start a new instance of a business process (e.g. order_to_cash, purchase_to_pay). \
+                                Returns the new instance with its id and current state. \
+                                After starting, call advance_process to step through transitions.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "process": {
+                            "type": "string",
+                            "description": "Process name, e.g. \"order_to_cash\""
+                        },
+                        "reference": {
+                            "type": "string",
+                            "description": "Optional external reference, e.g. an order number"
+                        },
+                        "context": {
+                            "type": "object",
+                            "description": "Optional initial context JSON"
+                        }
+                    },
+                    "required": ["process"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "advance_process",
+                "description": "Advance a process instance by one transition. \
+                                Pick a capability from the `available` list returned by get_process_instance \
+                                and call this tool with that exact capability name. \
+                                For transitions with a posting requirement (`available[n].posting != null`), \
+                                supply `amounts` as a map: key 'amount' = the debit total in integer cents, \
+                                plus one key per entry in `posting.credit_roles` \
+                                (e.g. {\"amount\": 10000} for a single-credit step, or \
+                                {\"amount\": 11000, \"sales_revenue\": 10000, \"tax_payable\": 1000} \
+                                for a multi-credit step). \
+                                The ledger enforces double-entry balance — only legal transitions are accepted. \
+                                On error, read the message: it lists the available capabilities.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "instance_id": {
+                            "type": "integer",
+                            "description": "Instance id returned by start_process"
+                        },
+                        "capability": {
+                            "type": "string",
+                            "description": "Transition capability, e.g. \"confirm_order\""
+                        },
+                        "amounts": {
+                            "type": "object",
+                            "description": "Integer-cents amounts for posting steps. \
+                                            Include key 'amount' = the debit total, \
+                                            and for a multi-credit posting one key per credit account role \
+                                            (e.g. sales_revenue, tax_payable) whose values sum to 'amount'. \
+                                            Non-posting steps need no amounts."
+                        },
+                        "context_patch": {
+                            "type": "object",
+                            "description": "JSON object merged into the instance context"
+                        }
+                    },
+                    "required": ["instance_id", "capability"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "list_process_instances",
+                "description": "List running or completed process instances. \
+                                Optionally filter by process name and/or status (active, completed, cancelled).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "process": {
+                            "type": "string",
+                            "description": "Filter by process name, e.g. \"order_to_cash\""
+                        },
+                        "status": {
+                            "type": "string",
+                            "enum": ["active", "completed", "cancelled"],
+                            "description": "Filter by status"
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_process_instance",
+                "description": "Get a process instance, its full step audit log, and the `available` \
+                                next capabilities the instance can accept right now. \
+                                The `available` array tells you exactly which capability names are legal \
+                                from the current state, and (for posting transitions) which amounts you \
+                                must supply. Always call this before advance_process so you pick the \
+                                correct capability — never guess capability names.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "instance_id": {
+                            "type": "integer",
+                            "description": "Instance id"
+                        }
+                    },
+                    "required": ["instance_id"]
+                }
+            }
         }
     ])
 }
@@ -368,14 +637,25 @@ fn tools() -> serde_json::Value {
 // ─── System prompt ────────────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT: &str = "You are the OpenERP assistant. You operate a double-entry \
-accounting ledger by calling tools. NEVER compute balances yourself — call \
-get_account_balance. To record money movement, call post_journal_entry with lines \
-whose debits equal credits within each currency (amounts are integer cents: 100 = 1.00). \
-You can switch the on-screen view with show_view (modules: ledger, inventory, workflows) \
-and read or operate inventory with list_inventory and receive_stock. \
-The ledger enforces correctness and will reject anything invalid — if a tool returns an \
-error, read it and explain it plainly. Be concise. When you have done what was asked, \
-give a one or two sentence summary.";
+accounting ledger and business-process engine by calling tools. \
+\n\nLEDGER: NEVER compute balances yourself — call get_account_balance. To record money \
+movement, call post_journal_entry with lines whose debits equal credits within each currency \
+(amounts are integer cents: 100 = 1.00). \
+\n\nPROCESSES: You can run structured business processes (e.g. order_to_cash, purchase_to_pay). \
+Use start_process to create an instance. To step through a process: \
+1. Call get_process_instance to see the `available` array — it lists every legal next capability \
+   for the current state, with posting requirements when amounts are needed. \
+2. Pick one capability from `available` and call advance_process with that EXACT capability name. \
+   NEVER guess capability names — always read them from `available`. \
+3. For a posting step (`available[n].posting != null`), supply `amounts` with key 'amount' = the \
+   debit total, plus one key per entry in `posting.credit_roles` (all must sum to 'amount'). \
+If advance_process returns an error, read it — it names the available capabilities from the \
+current state. NEVER tell the user a step succeeded unless the tool returned success. \
+Use list_process_instances and get_process_instance to inspect running or completed instances. \
+The engine enforces only legal transitions; the ledger enforces double-entry balance. \
+\n\nINVENTORY: read or operate inventory with list_inventory and receive_stock. \
+UI: switch the on-screen view with show_view (modules: ledger, inventory, workflows). \
+If a tool returns an error, read it and explain it plainly. Be concise.";
 
 // ─── Ollama structs ───────────────────────────────────────────────────────────
 

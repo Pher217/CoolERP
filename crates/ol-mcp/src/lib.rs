@@ -8,10 +8,11 @@
 //! - RFC 9728 Protected Resource Metadata at /.well-known/oauth-protected-resource (MUST).
 //! - Scoped tokens: ledger:read, ledger:post, ar:invoice, ap:bill.
 
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
-use chrono::NaiveDate;
+use chrono::{Local, NaiveDate};
 use ol_domain::Line;
+use ol_engine::AdvanceInput;
 use ol_ledger::{Balance, PostError, PostRequest, PostResult};
 use ol_process::Process;
 use ol_sdk::{ApiError, ErrorCode};
@@ -23,6 +24,7 @@ use rmcp::{
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -78,6 +80,50 @@ pub struct GetProcessParams {
     pub name: String,
 }
 
+/// Parameters for `start_process`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct StartProcessParams {
+    /// Process name, e.g. "order_to_cash".
+    pub process: String,
+    /// Optional external reference (order number, customer id, etc.).
+    pub reference: Option<String>,
+    /// Optional initial context as a JSON object.
+    pub context: Option<Value>,
+}
+
+/// Parameters for `advance_process`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct AdvanceProcessParams {
+    /// Instance id returned by `start_process`.
+    pub instance_id: i64,
+    /// Capability (transition label) to execute, e.g. "confirm_order".
+    pub capability: String,
+    /// Integer-cents amounts for posting steps. Include key 'amount' = the debit total,
+    /// and for a multi-credit posting one key per credit account role
+    /// (e.g. sales_revenue, tax_payable) whose values sum to 'amount'.
+    /// Non-posting steps need no amounts.
+    #[serde(default)]
+    pub amounts: HashMap<String, i64>,
+    /// JSON object merged into the instance context (shallow merge).
+    pub context_patch: Option<Value>,
+}
+
+/// Parameters for `get_process_instance`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GetProcessInstanceParams {
+    /// Instance id.
+    pub instance_id: i64,
+}
+
+/// Parameters for `list_process_instances`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ListProcessInstancesParams {
+    /// Filter by process name, e.g. "order_to_cash".
+    pub process: Option<String>,
+    /// Filter by status: "active", "completed", or "cancelled".
+    pub status: Option<String>,
+}
+
 // ---------------------------------------------------------------------------
 // Result types
 // ---------------------------------------------------------------------------
@@ -125,6 +171,79 @@ pub struct GetProcessResult {
     pub states: Vec<String>,
     /// Mermaid `stateDiagram-v2` diagram of this process.
     pub mermaid: String,
+}
+
+/// A process instance snapshot.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ProcessInstanceResult {
+    pub id: i64,
+    pub process: String,
+    pub current_state: String,
+    pub status: String,
+    pub reference: Option<String>,
+    pub context: Value,
+}
+
+impl From<ol_engine::Instance> for ProcessInstanceResult {
+    fn from(i: ol_engine::Instance) -> Self {
+        Self {
+            id: i.id,
+            process: i.process,
+            current_state: i.current_state,
+            status: i.status,
+            reference: i.reference,
+            context: i.context,
+        }
+    }
+}
+
+/// One step-log row.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct StepLogResult {
+    pub id: i64,
+    pub from_state: String,
+    pub to_state: String,
+    pub capability: String,
+    pub actor: String,
+    pub entry_id: Option<i64>,
+}
+
+/// Posting amounts required by an available transition.
+///
+/// Supply key `"amount"` (debit total) in the `amounts` map.  For multi-credit
+/// transitions, also supply one key per entry in `credit_roles`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct PostingRequirementResult {
+    /// The debit role name (informational; the caller uses key `"amount"`).
+    pub debit_role: String,
+    /// Additional per-credit-role keys required in `amounts` (multi-credit only).
+    pub credit_roles: Vec<String>,
+}
+
+/// One legal next move from the instance's current state.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct AvailableTransitionResult {
+    /// Pass this capability name to `advance_process`.
+    pub capability: String,
+    /// State the instance will enter when this transition fires.
+    pub to_state: String,
+    /// `Some` when posting amounts are required; `None` for non-posting transitions.
+    pub posting: Option<PostingRequirementResult>,
+}
+
+/// Result of `get_process_instance` — instance, full step log, and available next moves.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct GetProcessInstanceResult {
+    pub instance: ProcessInstanceResult,
+    pub steps: Vec<StepLogResult>,
+    /// Legal next capabilities from the current state.  Empty for terminal states.
+    pub available: Vec<AvailableTransitionResult>,
+}
+
+/// Result of `list_process_instances`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct ListProcessInstancesResult {
+    pub instances: Vec<ProcessInstanceResult>,
 }
 
 // ---------------------------------------------------------------------------
@@ -291,6 +410,201 @@ impl LedgerHandler {
             mermaid,
         }))
     }
+
+    /// Start a new instance of a business process.
+    ///
+    /// Returns the created instance. Use `advance_process` to step through transitions.
+    #[tool(name = "start_process")]
+    pub async fn start_process(
+        &self,
+        Parameters(params): Parameters<StartProcessParams>,
+    ) -> Result<Json<ProcessInstanceResult>, String> {
+        let context = params
+            .context
+            .unwrap_or_else(|| Value::Object(Default::default()));
+
+        ol_engine::start_instance(&self.pool, &params.process, params.reference, context)
+            .await
+            .map(|inst| Json(ProcessInstanceResult::from(inst)))
+            .map_err(engine_error_to_string)
+    }
+
+    /// Advance a process instance by one transition.
+    ///
+    /// Always call `get_process_instance` first to read the `available` array, which
+    /// lists the legal capability names from the current state.  Pass the exact
+    /// capability name from `available` — never guess.
+    ///
+    /// For transitions that post a GL entry (`available[n].posting != null`), supply
+    /// `amounts` with key `"amount"` = the debit total in integer cents, plus one key
+    /// per entry in `posting.credit_roles` (values must sum to `"amount"`).
+    /// Non-posting transitions need no `amounts`.
+    ///
+    /// On error the message names the available capabilities from the current state.
+    #[tool(name = "advance_process")]
+    pub async fn advance_process(
+        &self,
+        Parameters(params): Parameters<AdvanceProcessParams>,
+    ) -> Result<Json<ProcessInstanceResult>, String> {
+        let context_patch = params
+            .context_patch
+            .unwrap_or_else(|| Value::Object(Default::default()));
+
+        let input = AdvanceInput {
+            amounts: params.amounts,
+            context_patch,
+            entry_date: Local::now().date_naive(),
+        };
+
+        ol_engine::advance_instance(
+            &self.pool,
+            params.instance_id,
+            &params.capability,
+            "mcp",
+            input,
+        )
+        .await
+        .map(|inst| Json(ProcessInstanceResult::from(inst)))
+        .map_err(engine_error_to_string)
+    }
+
+    /// Get a process instance, its full step audit log, and the `available` next capabilities.
+    ///
+    /// The `available` array lists every legal capability name from the current state,
+    /// plus the posting amounts required (if any). Always call this before `advance_process`
+    /// to know the exact capability name to use — never guess.
+    #[tool(name = "get_process_instance")]
+    pub async fn get_process_instance(
+        &self,
+        Parameters(params): Parameters<GetProcessInstanceParams>,
+    ) -> Result<Json<GetProcessInstanceResult>, String> {
+        let result = ol_engine::get_instance(&self.pool, params.instance_id)
+            .await
+            .map_err(engine_error_to_string)?;
+
+        Ok(Json(GetProcessInstanceResult {
+            instance: ProcessInstanceResult::from(result.instance),
+            steps: result
+                .steps
+                .into_iter()
+                .map(|s| StepLogResult {
+                    id: s.id,
+                    from_state: s.from_state,
+                    to_state: s.to_state,
+                    capability: s.capability,
+                    actor: s.actor,
+                    entry_id: s.entry_id,
+                })
+                .collect(),
+            available: result
+                .available
+                .into_iter()
+                .map(|at| AvailableTransitionResult {
+                    capability: at.capability,
+                    to_state: at.to_state,
+                    posting: at.posting.map(|p| PostingRequirementResult {
+                        debit_role: p.debit_role,
+                        credit_roles: p.credit_roles,
+                    }),
+                })
+                .collect(),
+        }))
+    }
+
+    /// List process instances, optionally filtered by process name and/or status.
+    #[tool(name = "list_process_instances")]
+    pub async fn list_process_instances(
+        &self,
+        Parameters(params): Parameters<ListProcessInstancesParams>,
+    ) -> Result<Json<ListProcessInstancesResult>, String> {
+        ol_engine::list_instances(
+            &self.pool,
+            params.process.as_deref(),
+            params.status.as_deref(),
+        )
+        .await
+        .map(|list| {
+            Json(ListProcessInstancesResult {
+                instances: list.into_iter().map(ProcessInstanceResult::from).collect(),
+            })
+        })
+        .map_err(engine_error_to_string)
+    }
+}
+
+/// Map an [`ol_engine::EngineError`] to a structured `"CODE: message"` string for MCP tool errors.
+fn engine_error_to_string(e: ol_engine::EngineError) -> String {
+    match e {
+        ol_engine::EngineError::ProcessNotFound(name) => {
+            ApiError::new(ErrorCode::Validation, format!("process not found: {name}")).to_string()
+        }
+        ol_engine::EngineError::IllegalTransition {
+            from,
+            capability,
+            available,
+        } => {
+            let msg = if available.is_empty() {
+                format!(
+                    "no transition from '{from}' with capability '{capability}' (terminal state)"
+                )
+            } else {
+                format!(
+                    "no transition from '{from}' with capability '{capability}'. \
+                     Available from '{from}': {avail}",
+                    avail = available.join(", ")
+                )
+            };
+            ApiError::new(ErrorCode::Validation, msg).to_string()
+        }
+        ol_engine::EngineError::InstanceNotActive(status) => ApiError::new(
+            ErrorCode::Validation,
+            format!("instance is not active (status: {status})"),
+        )
+        .to_string(),
+        ol_engine::EngineError::ConcurrentAdvance => ApiError::new(
+            ErrorCode::SerializationFailure,
+            "concurrent advance conflict".to_string(),
+        )
+        .to_string(),
+        ol_engine::EngineError::UnknownRole(role) => ApiError::new(
+            ErrorCode::Validation,
+            format!("unknown account role: {role}"),
+        )
+        .to_string(),
+        ol_engine::EngineError::PostingAmountsRequired {
+            capability,
+            debit_role,
+            credit_roles,
+            missing,
+        } => ApiError::new(
+            ErrorCode::Validation,
+            format!(
+                "posting step '{capability}' needs amounts in integer cents: \
+                 key 'amount' = the debit total for role '{debit_role}', \
+                 plus one key per credit role [{credit_roles}]; \
+                 all credit amounts must sum to 'amount'. \
+                 Missing: [{missing}].",
+                credit_roles = credit_roles.join(", "),
+                missing = missing.join(", ")
+            ),
+        )
+        .to_string(),
+        ol_engine::EngineError::Unbalanced { debit, credit } => ApiError::new(
+            ErrorCode::UnbalancedEntry,
+            format!("posting unbalanced: debit {debit} != credit {credit}"),
+        )
+        .to_string(),
+        ol_engine::EngineError::Ledger(inner) => post_error_to_string(inner),
+        ol_engine::EngineError::Db(db) => {
+            ApiError::new(ErrorCode::Internal, db.to_string()).to_string()
+        }
+        ol_engine::EngineError::Io(io) => {
+            ApiError::new(ErrorCode::Internal, io.to_string()).to_string()
+        }
+        ol_engine::EngineError::ProcessLoad(msg) => {
+            ApiError::new(ErrorCode::Internal, format!("process load error: {msg}")).to_string()
+        }
+    }
 }
 
 /// Map a [`PostError`] to a structured `"CODE: message"` string for MCP tool errors.
@@ -346,7 +660,7 @@ impl ServerHandler for LedgerHandler {
 mod tests {
     use super::*;
 
-    /// The tool router must list exactly the four expected tools.
+    /// The tool router must list exactly the eight expected tools.
     /// This does not require a live database or MCP client.
     #[test]
     fn tool_router_lists_expected_tools() {
@@ -355,6 +669,7 @@ mod tests {
         let names: std::collections::HashSet<&str> =
             tools.iter().map(|t| t.name.as_ref()).collect();
 
+        // Ledger tools
         assert!(
             names.contains("post_journal_entry"),
             "missing post_journal_entry"
@@ -365,6 +680,19 @@ mod tests {
         );
         assert!(names.contains("list_processes"), "missing list_processes");
         assert!(names.contains("get_process"), "missing get_process");
-        assert_eq!(names.len(), 4, "unexpected extra tools: {names:?}");
+
+        // Engine tools
+        assert!(names.contains("start_process"), "missing start_process");
+        assert!(names.contains("advance_process"), "missing advance_process");
+        assert!(
+            names.contains("get_process_instance"),
+            "missing get_process_instance"
+        );
+        assert!(
+            names.contains("list_process_instances"),
+            "missing list_process_instances"
+        );
+
+        assert_eq!(names.len(), 8, "unexpected extra tools: {names:?}");
     }
 }
