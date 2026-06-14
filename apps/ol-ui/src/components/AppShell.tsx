@@ -201,7 +201,7 @@ export function AppShell() {
         ? '/ledger'
         : module === 'inventory'
           ? '/inventory'
-          : module === 'workflows'
+          : module === 'workflows' || module === 'processes'
             ? '/processes'
             : '/'
     navigate(route)
