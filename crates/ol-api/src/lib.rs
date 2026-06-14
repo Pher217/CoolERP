@@ -9,6 +9,7 @@
 
 pub mod chat;
 pub mod metrics;
+pub mod reports;
 
 use axum::{
     Json,
@@ -48,6 +49,8 @@ pub fn app(pool: PgPool) -> axum::Router {
         .routes(routes!(chat::chat))
         .routes(routes!(metrics::get_overview))
         .routes(routes!(metrics::get_ar_aging))
+        .routes(routes!(reports::trial_balance))
+        .routes(routes!(reports::subledger_reconciliation))
         .split_for_parts();
 
     router
@@ -94,6 +97,10 @@ pub fn app(pool: PgPool) -> axum::Router {
         metrics::OverviewResponse,
         metrics::AgingBucket,
         metrics::ArAgingResponse,
+        reports::TrialBalanceLine,
+        reports::TrialBalanceResponse,
+        reports::SubledgerSection,
+        reports::SubledgerReconciliationResponse,
     ))
 )]
 struct ApiDoc;
