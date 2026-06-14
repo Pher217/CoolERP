@@ -1,8 +1,10 @@
 import { useRef, useState } from 'react'
+import { Send } from 'lucide-react'
+
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { api, type ChatAction, type ChatTurn } from '../api/client.ts'
 import { formatMoney } from '../lib/money.ts'
-
-// ─── Action chip ──────────────────────────────────────────────────────────────
 
 function actionLabel(action: ChatAction): string {
   if (action.error) return `${action.tool} — error`
@@ -33,15 +35,17 @@ function ActionChip({ action }: { action: ChatAction }) {
   const isError = Boolean(action.error)
   return (
     <span
-      className={`chat-action-chip ${isError ? 'chat-action-chip--error' : ''}`}
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+        isError
+          ? 'border-red-200 bg-red-50 text-red-700'
+          : 'border-blue-200 bg-blue-50 text-blue-700'
+      }`}
       title={isError ? action.error : JSON.stringify(action.result, null, 2)}
     >
       {label}
     </span>
   )
 }
-
-// ─── Message bubble ───────────────────────────────────────────────────────────
 
 type Message =
   | { role: 'user'; content: string }
@@ -50,10 +54,18 @@ type Message =
 function MessageBubble({ msg }: { msg: Message }) {
   const isUser = msg.role === 'user'
   return (
-    <div className={`chat-message ${isUser ? 'chat-message--user' : 'chat-message--assistant'}`}>
-      <div className="chat-bubble">{msg.content}</div>
+    <div className={`flex flex-col gap-1 ${isUser ? 'items-end' : 'items-start'}`}>
+      <div
+        className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+          isUser
+            ? 'rounded-br-sm bg-primary text-primary-foreground'
+            : 'rounded-bl-sm bg-muted text-foreground'
+        }`}
+      >
+        {msg.content}
+      </div>
       {msg.role === 'assistant' && msg.actions.length > 0 && (
-        <div className="chat-actions">
+        <div className="flex flex-wrap gap-1 px-1">
           {msg.actions.map((a, i) => (
             <ActionChip key={i} action={a} />
           ))}
@@ -62,8 +74,6 @@ function MessageBubble({ msg }: { msg: Message }) {
     </div>
   )
 }
-
-// ─── ChatPanel ────────────────────────────────────────────────────────────────
 
 type ChatPanelProps = {
   onView?: (module: string, focus?: string | null) => void
@@ -90,7 +100,6 @@ export function ChatPanel({ onView }: ChatPanelProps) {
     setSending(true)
     scrollToBottom()
 
-    // Build history from prior turns (skip the message we just added).
     const history: ChatTurn[] = messages.map((m) => ({
       role: m.role,
       content: m.content,
@@ -128,46 +137,57 @@ export function ChatPanel({ onView }: ChatPanelProps) {
   }
 
   return (
-    <div className="chat-panel flex h-full flex-col overflow-hidden bg-white">
-      <h2 className="px-4 pt-4 text-sm font-semibold uppercase tracking-wide text-slate-500">
-        AI Assistant
-      </h2>
-
-      <div className="chat-messages max-h-none flex-1 overflow-y-auto px-4 py-3">
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="flex-1 overflow-y-auto px-4 py-4">
         {messages.length === 0 && (
-          <p className="muted chat-empty">
-            Ask about balances, or say "post €100 from 1000 to 4000 today".
-          </p>
-        )}
-        {messages.map((msg, i) => (
-          <MessageBubble key={i} msg={msg} />
-        ))}
-        {sending && (
-          <div className="chat-message chat-message--assistant">
-            <div className="chat-bubble chat-bubble--thinking">Thinking…</div>
+          <div className="flex flex-col items-center justify-center py-8 text-center">
+            <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+              <svg className="h-5 w-5 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+              </svg>
+            </div>
+            <p className="text-sm font-medium text-foreground">Ask the assistant</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Try: "What's the cash balance?" or "Post €100 from 1000 to 4000 today"
+            </p>
           </div>
         )}
-        <div ref={bottomRef} />
+        <div className="flex flex-col gap-3">
+          {messages.map((msg, i) => (
+            <MessageBubble key={i} msg={msg} />
+          ))}
+          {sending && (
+            <div className="flex flex-col items-start gap-1">
+              <div className="rounded-2xl rounded-bl-sm bg-muted px-4 py-2.5 text-sm italic text-muted-foreground">
+                Thinking…
+              </div>
+            </div>
+          )}
+          <div ref={bottomRef} />
+        </div>
       </div>
 
-      <div className="chat-input-row border-t border-slate-200 bg-slate-50 px-4 py-3">
-        <input
-          className="chat-input flex-1"
-          type="text"
-          placeholder="Ask the assistant…"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          disabled={sending}
-          aria-label="Chat message"
-        />
-        <button
-          className="btn-primary"
-          onClick={() => void send()}
-          disabled={sending || !input.trim()}
-        >
-          {sending ? '…' : 'Send'}
-        </button>
+      <div className="flex-shrink-0 border-t bg-background/80 px-4 py-3 backdrop-blur">
+        <div className="flex items-center gap-2">
+          <Input
+            className="flex-1 bg-background"
+            type="text"
+            placeholder="Ask the assistant…"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={sending}
+            aria-label="Chat message"
+          />
+          <Button
+            size="icon"
+            onClick={() => void send()}
+            disabled={sending || !input.trim()}
+            aria-label="Send message"
+          >
+            <Send className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
     </div>
   )

@@ -1,3 +1,5 @@
+import { Card } from '@/components/ui/card'
+
 type KpiCardProps = {
   label: string
   value: string
@@ -6,12 +8,14 @@ type KpiCardProps = {
 
 export function KpiCard({ label, value, subText }: KpiCardProps) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="mt-2 text-2xl font-bold text-slate-900">{value}</p>
+    <Card className="px-5 py-4">
+      <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-2 text-3xl font-bold tracking-tight text-foreground">{value}</p>
       {subText && (
-        <p className="mt-1 text-sm text-slate-500">{subText}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{subText}</p>
       )}
-    </div>
+    </Card>
   )
 }
