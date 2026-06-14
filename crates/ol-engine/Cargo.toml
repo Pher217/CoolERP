@@ -1,0 +1,24 @@
+[package]
+name = "ol-engine"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Durable process engine: state machine + GL posting orchestration for OpenERP."
+
+[dependencies]
+ol-domain = { path = "../ol-domain" }
+ol-ledger = { path = "../ol-ledger" }
+ol-process = { path = "../ol-process" }
+sqlx.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
