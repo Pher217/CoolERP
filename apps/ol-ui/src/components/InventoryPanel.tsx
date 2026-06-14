@@ -1,4 +1,17 @@
 import { useEffect, useState } from 'react'
+import { RefreshCw } from 'lucide-react'
+
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { api, type InventoryItem } from '../api/client.ts'
 
 type LoadState =
@@ -23,64 +36,69 @@ export function InventoryPanel() {
     void load()
   }, [])
 
-  if (state.status === 'error') {
-    return (
-      <div className="widget">
-        <h2>Inventory</h2>
-        <p className="muted">API offline — start ol-api to load inventory.</p>
-      </div>
-    )
-  }
-
   return (
-    <div className="widget">
-      <div className="widget-header">
-        <h2>Inventory</h2>
-        <button
-          className="btn-secondary btn-sm"
-          onClick={() => void load()}
-          disabled={state.status === 'loading'}
-          aria-label="Refresh inventory"
-        >
-          {state.status === 'loading' ? 'Loading…' : 'Refresh'}
-        </button>
-      </div>
-      <table className="w-full border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-slate-200 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-            <th className="py-2 pr-2">SKU</th>
-            <th className="py-2 px-2">Name</th>
-            <th className="py-2 pl-2 text-right">On hand</th>
-          </tr>
-        </thead>
-        <tbody className="text-slate-700">
-          {state.status === 'ok' && state.items.length === 0 && (
-            <tr>
-              <td colSpan={3} className="py-2 text-slate-400">
-                No inventory items.
-              </td>
-            </tr>
+    <div className="mx-auto max-w-6xl space-y-6">
+      <h1 className="text-2xl font-bold tracking-tight text-foreground">Inventory</h1>
+
+      <Card className="shadow-sm">
+        <CardHeader className="flex flex-row items-center justify-between">
+          <div>
+            <CardTitle>Stock on hand</CardTitle>
+            <CardDescription>Live inventory quantities from ol-api.</CardDescription>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void load()}
+            disabled={state.status === 'loading'}
+            aria-label="Refresh inventory"
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${state.status === 'loading' ? 'animate-spin' : ''}`} />
+            {state.status === 'loading' ? 'Loading…' : 'Refresh'}
+          </Button>
+        </CardHeader>
+        <CardContent className="p-0">
+          {state.status === 'error' ? (
+            <div className="px-6 py-8 text-center text-sm text-muted-foreground">
+              API offline — start ol-api to load inventory.
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>SKU</TableHead>
+                  <TableHead>Name</TableHead>
+                  <TableHead className="text-right">On hand</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {state.status === 'loading' && (
+                  <TableRow>
+                    <TableCell colSpan={3}>
+                      <Skeleton className="h-4 w-full" />
+                    </TableCell>
+                  </TableRow>
+                )}
+                {state.status === 'ok' && state.items.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={3} className="text-center text-muted-foreground">
+                      No inventory items.
+                    </TableCell>
+                  </TableRow>
+                )}
+                {state.status === 'ok' &&
+                  state.items.map((item) => (
+                    <TableRow key={item.sku}>
+                      <TableCell className="font-medium">{item.sku}</TableCell>
+                      <TableCell>{item.name}</TableCell>
+                      <TableCell className="text-right tabular-nums">{item.on_hand}</TableCell>
+                    </TableRow>
+                  ))}
+              </TableBody>
+            </Table>
           )}
-          {state.status === 'ok' &&
-            state.items.map((item) => (
-              <tr
-                key={item.sku}
-                className="border-b border-slate-100 transition-colors hover:bg-slate-50"
-              >
-                <td className="py-2 pr-2">{item.sku}</td>
-                <td className="py-2 px-2">{item.name}</td>
-                <td className="py-2 pl-2 text-right tabular-nums">{item.on_hand}</td>
-              </tr>
-            ))}
-          {state.status === 'loading' && (
-            <tr>
-              <td colSpan={3} className="py-2 text-slate-400">
-                Loading…
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+        </CardContent>
+      </Card>
     </div>
   )
 }

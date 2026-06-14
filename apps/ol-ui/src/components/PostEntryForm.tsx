@@ -1,9 +1,35 @@
 import { useState } from 'react'
+import { Plus, Trash2 } from 'lucide-react'
+
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { api, type JournalEntryLine, ApiError } from '../api/client.ts'
+
+// shadcn label is not installed by default; we add a minimal one inline below.
+
+function InlineLabel({ children, htmlFor }: { children: React.ReactNode; htmlFor?: string }) {
+  return (
+    <label
+      htmlFor={htmlFor}
+      className="text-xs font-semibold uppercase tracking-wide text-muted-foreground"
+    >
+      {children}
+    </label>
+  )
+}
 
 type Line = {
   account_code: string
-  debit: string  // raw input string (integer cents)
+  debit: string // raw input string (integer cents)
   credit: string // raw input string (integer cents)
 }
 
@@ -82,127 +108,144 @@ export function PostEntryForm({ onSuccess }: Props) {
   const isSubmitting = submitState.status === 'submitting'
 
   return (
-    <div className="widget">
-      <h2>Post Journal Entry</h2>
-      <form className="entry-form" onSubmit={handleSubmit}>
-        <div className="form-row">
-          <label>Journal code</label>
-          <input
-            type="text"
-            value={journal}
-            onChange={(e) => setJournal(e.target.value)}
-            required
-          />
-        </div>
-        <div className="form-row">
-          <label>Entry date</label>
-          <input
-            type="date"
-            value={entryDate}
-            onChange={(e) => setEntryDate(e.target.value)}
-            required
-          />
-        </div>
-        <div className="form-row">
-          <label>Memo</label>
-          <input
-            type="text"
-            value={memo}
-            onChange={(e) => setMemo(e.target.value)}
-            placeholder="optional"
-          />
-        </div>
-        <div className="form-row">
-          <label>Actor</label>
-          <input
-            type="text"
-            value={actor}
-            onChange={(e) => setActor(e.target.value)}
-            required
-          />
-        </div>
-
-        <div className="lines-section">
-          <h3>Lines <span className="muted">(integer cents)</span></h3>
-          <table className="lines-table">
-            <thead>
-              <tr>
-                <th>Account code</th>
-                <th>Debit (¢)</th>
-                <th>Credit (¢)</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {lines.map((line, i) => (
-                <tr key={i}>
-                  <td>
-                    <input
-                      type="text"
-                      value={line.account_code}
-                      onChange={(e) => updateLine(i, 'account_code', e.target.value)}
-                      placeholder="e.g. 1000"
-                      required
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      value={line.debit}
-                      onChange={(e) => updateLine(i, 'debit', e.target.value)}
-                      min="0"
-                      step="1"
-                    />
-                  </td>
-                  <td>
-                    <input
-                      type="number"
-                      value={line.credit}
-                      onChange={(e) => updateLine(i, 'credit', e.target.value)}
-                      min="0"
-                      step="1"
-                    />
-                  </td>
-                  <td>
-                    {lines.length > 2 && (
-                      <button
-                        type="button"
-                        className="btn-remove"
-                        onClick={() => removeLine(i)}
-                        aria-label="Remove line"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <button type="button" className="btn-secondary" onClick={addLine}>
-            + Add line
-          </button>
-        </div>
-
-        <div className="form-actions">
-          <button type="submit" className="btn-primary" disabled={isSubmitting}>
-            {isSubmitting ? 'Posting…' : 'Post entry'}
-          </button>
-        </div>
-
-        {submitState.status === 'success' && (
-          <div className="success-banner">
-            Entry #{submitState.entry_id} posted successfully.
-            {submitState.replayed && ' (idempotent replay)'}
+    <Card className="shadow-sm">
+      <CardHeader>
+        <CardTitle>Post Journal Entry</CardTitle>
+        <CardDescription>Create a balanced journal entry. Amounts are integer cents.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form className="space-y-5" onSubmit={handleSubmit}>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="space-y-2">
+              <InlineLabel htmlFor="journal">Journal code</InlineLabel>
+              <Input
+                id="journal"
+                type="text"
+                value={journal}
+                onChange={(e) => setJournal(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <InlineLabel htmlFor="entryDate">Entry date</InlineLabel>
+              <Input
+                id="entryDate"
+                type="date"
+                value={entryDate}
+                onChange={(e) => setEntryDate(e.target.value)}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <InlineLabel htmlFor="memo">Memo</InlineLabel>
+              <Input
+                id="memo"
+                type="text"
+                value={memo}
+                onChange={(e) => setMemo(e.target.value)}
+                placeholder="optional"
+              />
+            </div>
+            <div className="space-y-2">
+              <InlineLabel htmlFor="actor">Actor</InlineLabel>
+              <Input
+                id="actor"
+                type="text"
+                value={actor}
+                onChange={(e) => setActor(e.target.value)}
+                required
+              />
+            </div>
           </div>
-        )}
-        {submitState.status === 'error' && (
-          <div className="error-banner">
-            {submitState.code && <span className="error-code">[{submitState.code}]</span>}{' '}
-            {submitState.message}
+
+          <div className="space-y-3">
+            <InlineLabel>Lines (integer cents)</InlineLabel>
+            <div className="rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Account code</TableHead>
+                    <TableHead className="text-right">Debit (¢)</TableHead>
+                    <TableHead className="text-right">Credit (¢)</TableHead>
+                    <TableHead className="w-12"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {lines.map((line, i) => (
+                    <TableRow key={i}>
+                      <TableCell>
+                        <Input
+                          type="text"
+                          value={line.account_code}
+                          onChange={(e) => updateLine(i, 'account_code', e.target.value)}
+                          placeholder="e.g. 1000"
+                          required
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          value={line.debit}
+                          onChange={(e) => updateLine(i, 'debit', e.target.value)}
+                          min="0"
+                          step="1"
+                          className="text-right"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          value={line.credit}
+                          onChange={(e) => updateLine(i, 'credit', e.target.value)}
+                          min="0"
+                          step="1"
+                          className="text-right"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        {lines.length > 2 && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => removeLine(i)}
+                            aria-label="Remove line"
+                          >
+                            <Trash2 className="h-4 w-4 text-muted-foreground" />
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={addLine}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add line
+            </Button>
           </div>
-        )}
-      </form>
-    </div>
+
+          <div className="flex items-center gap-4">
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? 'Posting…' : 'Post entry'}
+            </Button>
+          </div>
+
+          {submitState.status === 'success' && (
+            <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+              Entry #{submitState.entry_id} posted successfully.
+              {submitState.replayed && ' (idempotent replay)'}
+            </div>
+          )}
+          {submitState.status === 'error' && (
+            <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+              {submitState.code && <span className="mr-1 font-mono font-semibold">[{submitState.code}]</span>}
+              {submitState.message}
+            </div>
+          )}
+        </form>
+      </CardContent>
+    </Card>
   )
 }
