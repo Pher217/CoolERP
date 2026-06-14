@@ -14,6 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 ol-domain = { path = "../ol-domain" }
+ol-engine = { path = "../ol-engine" }
 ol-ledger = { path = "../ol-ledger" }
 ol-process = { path = "../ol-process" }
 ol-sdk = { path = "../ol-sdk" }
