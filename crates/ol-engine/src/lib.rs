@@ -20,6 +20,7 @@ use chrono::NaiveDate;
 use ol_domain::Line;
 use ol_ledger::{PostRequest, post_journal_entry};
 use ol_process::{CreditTarget, Process};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
 use uuid::Uuid;
@@ -27,6 +28,33 @@ use uuid::Uuid;
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
+
+/// Posting amounts that an AI agent must supply when calling a posting transition.
+///
+/// `debit_role` is the key `"amount"` (the debit total).
+/// `credit_roles` are the additional per-credit-role keys.
+/// For a single-credit transition only `"amount"` is required.
+/// For multi-credit transitions both `"amount"` and each entry in `credit_roles`
+/// must be supplied and must sum correctly.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PostingRequirement {
+    /// The debit role name (the caller supplies this as key `"amount"` in amounts).
+    pub debit_role: String,
+    /// Credit role names that must also appear in amounts (multi-credit transitions only).
+    pub credit_roles: Vec<String>,
+}
+
+/// One legal next move from the current state of a process instance.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AvailableTransition {
+    /// The capability name the caller must pass to `advance_instance`.
+    pub capability: String,
+    /// The state the instance will move to if this transition fires.
+    pub to_state: String,
+    /// `Some(req)` when this transition posts a GL entry.  The caller must
+    /// supply the amounts described in `req`.  `None` for non-posting transitions.
+    pub posting: Option<PostingRequirement>,
+}
 
 /// A snapshot of a process instance row.
 #[derive(Debug, Clone)]
@@ -70,14 +98,42 @@ pub enum EngineError {
     #[error("process '{0}' not found in the processes directory")]
     ProcessNotFound(String),
 
-    #[error("no transition from '{from}' with capability '{capability}'")]
-    IllegalTransition { from: String, capability: String },
+    #[error("no transition from '{from}' with capability '{capability}'. Available from '{from}': {available}",
+        available = if available.is_empty() { "(none — terminal state)".to_string() } else { available.join(", ") }
+    )]
+    IllegalTransition {
+        from: String,
+        capability: String,
+        /// Human-readable descriptions of the legal next moves, e.g.
+        /// `"run_credit_check -> credit_check"` or
+        /// `"deliver -> shipped (posts: debit cost_of_goods_sold, credit inventory)"`.
+        available: Vec<String>,
+    },
 
     #[error("instance is not active (current status: {0})")]
     InstanceNotActive(String),
 
     #[error("unknown account role '{0}'")]
     UnknownRole(String),
+
+    /// The caller supplied amounts for a posting step but the map is missing
+    /// required keys.  `missing` lists every absent key so the caller can fix
+    /// the call in one go without trial-and-error.
+    #[error(
+        "posting step '{capability}' needs amounts in integer cents: \
+         key 'amount' = the debit total for role '{debit_role}', \
+         plus one key per credit role [{credit_roles}]; \
+         all credit amounts must sum to 'amount'. \
+         Missing: [{missing}].",
+        credit_roles = credit_roles.join(", "),
+        missing = missing.join(", ")
+    )]
+    PostingAmountsRequired {
+        capability: String,
+        debit_role: String,
+        credit_roles: Vec<String>,
+        missing: Vec<String>,
+    },
 
     #[error("posting amounts unbalanced: debit {debit} != credit {credit}")]
     Unbalanced { debit: i64, credit: i64 },
@@ -174,6 +230,66 @@ fn row_to_instance(
         reference,
         context,
     }
+}
+
+/// Return all transitions that are legal from `state` in the given process.
+///
+/// Each entry in the returned vec describes one legal next move: the capability
+/// name to pass, the target state, and (for posting transitions) the amounts
+/// the caller must supply.
+pub fn available_transitions(proc: &Process, state: &str) -> Vec<AvailableTransition> {
+    proc.transitions
+        .iter()
+        .filter(|t| t.from == state)
+        .filter_map(|t| {
+            // Skip transitions that have no capability name (internal/auto transitions).
+            let capability = t.capability.as_ref()?.clone();
+
+            let posting = t.posting_rule.as_ref().map(|rule| {
+                let credit_roles = match &rule.credit {
+                    CreditTarget::Single(_) => vec![],
+                    CreditTarget::Multiple(rs) => rs.clone(),
+                };
+                PostingRequirement {
+                    debit_role: rule.debit.clone(),
+                    credit_roles,
+                }
+            });
+
+            Some(AvailableTransition {
+                capability,
+                to_state: t.to.clone(),
+                posting,
+            })
+        })
+        .collect()
+}
+
+/// Build the human-readable summary strings used in `IllegalTransition::available`.
+///
+/// Example outputs:
+///   "run_credit_check -> credit_check"
+///   "deliver -> shipped (posts: debit cost_of_goods_sold, credit inventory)"
+///   "post_invoice -> invoiced (posts: debit accounts_receivable, credit sales_revenue, tax_payable)"
+fn available_transition_hints(proc: &Process, state: &str) -> Vec<String> {
+    available_transitions(proc, state)
+        .into_iter()
+        .map(|at| {
+            if let Some(p) = &at.posting {
+                let credits = if p.credit_roles.is_empty() {
+                    p.debit_role.clone() // single-credit: credit role = same name as debit role context
+                } else {
+                    p.credit_roles.join(", ")
+                };
+                format!(
+                    "{} -> {} (posts: debit {}, credit {})",
+                    at.capability, at.to_state, p.debit_role, credits
+                )
+            } else {
+                format!("{} -> {}", at.capability, at.to_state)
+            }
+        })
+        .collect()
 }
 
 /// Derive a deterministic UUIDv5 idempotency key for a posting step.
@@ -304,6 +420,7 @@ pub async fn advance_instance(
         .ok_or_else(|| EngineError::IllegalTransition {
             from: current_state.clone(),
             capability: capability.to_string(),
+            available: available_transition_hints(&proc, &current_state),
         })?
         .clone();
 
@@ -332,16 +449,40 @@ pub async fn advance_instance(
             .fetch_one(&mut *tx)
             .await?;
 
-        let debit_total = *input
-            .amounts
-            .get("amount")
-            .ok_or_else(|| EngineError::UnknownRole("amount".to_string()))?;
-
-        // Resolve credit role(s) to account codes.
+        // Resolve credit role(s) to account codes (before reading "amount" so we
+        // can build a complete missing-key list in one shot if needed).
         let credit_roles: Vec<String> = match &rule.credit {
             CreditTarget::Single(r) => vec![r.clone()],
             CreditTarget::Multiple(rs) => rs.clone(),
         };
+
+        // Compute the set of missing required amount keys up front so the error
+        // message names ALL of them rather than just the first one encountered.
+        {
+            let mut missing: Vec<String> = Vec::new();
+            if !input.amounts.contains_key("amount") {
+                missing.push("amount".to_string());
+            }
+            // For multi-credit posting rules the caller must supply every role key.
+            if credit_roles.len() > 1 {
+                for role in &credit_roles {
+                    if !input.amounts.contains_key(role.as_str()) {
+                        missing.push(role.clone());
+                    }
+                }
+            }
+            if !missing.is_empty() {
+                tx.rollback().await?;
+                return Err(EngineError::PostingAmountsRequired {
+                    capability: capability.to_string(),
+                    debit_role: rule.debit.clone(),
+                    credit_roles: credit_roles.clone(),
+                    missing,
+                });
+            }
+        }
+
+        let debit_total = *input.amounts.get("amount").expect("checked above");
 
         let mut credit_lines: Vec<(String, i64)> = Vec::with_capacity(credit_roles.len());
         let mut credit_sum: i64 = 0;
@@ -358,10 +499,7 @@ pub async fn advance_instance(
                 // Single credit role: entire debit goes here.
                 *input.amounts.get(role.as_str()).unwrap_or(&debit_total)
             } else {
-                *input
-                    .amounts
-                    .get(role.as_str())
-                    .ok_or_else(|| EngineError::UnknownRole(role.clone()))?
+                *input.amounts.get(role.as_str()).expect("checked above")
             };
 
             credit_sum += role_amount;
@@ -452,8 +590,8 @@ pub async fn advance_instance(
             match current {
                 Some((state,)) if state == *new_state => {
                     // Already at the target state — idempotent success.
-                    let (inst, _) = get_instance(pool, instance_id).await?;
-                    return Ok(inst);
+                    let result = get_instance(pool, instance_id).await?;
+                    return Ok(result.instance);
                 }
                 _ => return Err(EngineError::ConcurrentAdvance),
             }
@@ -490,8 +628,18 @@ pub async fn advance_instance(
     ))
 }
 
-/// Retrieve a process instance and its full step log.
-pub async fn get_instance(pool: &PgPool, id: i64) -> Result<(Instance, Vec<StepLog>), EngineError> {
+/// Result of [`get_instance`]: the instance snapshot, its full step log, and
+/// the legal next transitions from the current state.
+pub struct GetInstanceResult {
+    pub instance: Instance,
+    pub steps: Vec<StepLog>,
+    /// Legal next moves from the instance's current state.  Empty when the
+    /// instance is in a terminal state (no outgoing transitions).
+    pub available: Vec<AvailableTransition>,
+}
+
+/// Retrieve a process instance, its full step log, and available next transitions.
+pub async fn get_instance(pool: &PgPool, id: i64) -> Result<GetInstanceResult, EngineError> {
     let row: Option<(String, String, String, Option<String>, Value)> = sqlx::query_as(
         "SELECT process, current_state, status::text, reference, context \
          FROM process_instances WHERE id = $1",
@@ -503,7 +651,14 @@ pub async fn get_instance(pool: &PgPool, id: i64) -> Result<(Instance, Vec<StepL
     let (process, current_state, status, reference, context) =
         row.ok_or(EngineError::Db(sqlx::Error::RowNotFound))?;
 
-    let instance = row_to_instance(id, process, current_state, status, reference, context);
+    let instance = row_to_instance(
+        id,
+        process.clone(),
+        current_state.clone(),
+        status,
+        reference,
+        context,
+    );
 
     let log_rows: Vec<StepLogRow> = sqlx::query_as(
         "SELECT id, from_state, to_state, capability, actor, entry_id, payload, created_at \
@@ -515,7 +670,7 @@ pub async fn get_instance(pool: &PgPool, id: i64) -> Result<(Instance, Vec<StepL
     .fetch_all(pool)
     .await?;
 
-    let logs = log_rows
+    let steps = log_rows
         .into_iter()
         .map(
             |(log_id, from_state, to_state, capability, actor, entry_id, payload, created_at)| {
@@ -534,7 +689,17 @@ pub async fn get_instance(pool: &PgPool, id: i64) -> Result<(Instance, Vec<StepL
         )
         .collect();
 
-    Ok((instance, logs))
+    // Compute available transitions from the current state.
+    let available = match load_process(&process) {
+        Ok(proc) => available_transitions(&proc, &current_state),
+        Err(_) => vec![], // process YAML unavailable; return empty rather than failing
+    };
+
+    Ok(GetInstanceResult {
+        instance,
+        steps,
+        available,
+    })
 }
 
 /// List process instances, optionally filtered by process name and/or status.
