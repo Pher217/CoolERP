@@ -1,0 +1,82 @@
+# Business-process source-of-truth (version-controlled, diffable, machine-legible).
+# The purchase-to-pay lifecycle, including inventory receipt and payment.
+process: purchase_to_pay
+states: [requisition, po, received, billed, paid, cancelled]
+transitions:
+  - from: requisition
+    to: po
+    capability: approve_po
+  - from: po
+    to: received
+    capability: receive_goods
+    posting_rule:
+      debit: inventory
+      credit: accounts_payable
+  - from: received
+    to: billed
+    capability: record_bill
+  - from: billed
+    to: paid
+    capability: pay_bill
+    posting_rule:
+      debit: accounts_payable
+      credit: cash
+  - from: requisition
+    to: cancelled
+    capability: cancel
+steps:
+  - state: requisition
+    description: Capture the internal purchase request, business need, and budget owner.
+    fields:
+      - name: requester
+        label: Requester
+        type: text
+        required: true
+      - name: estimated_amount
+        label: Estimated amount
+        type: money
+  - state: po
+    description: Approve and issue a purchase order with supplier, price, delivery, and tax terms.
+    fields:
+      - name: supplier
+        label: Supplier
+        type: text
+        required: true
+      - name: po_total
+        label: PO total
+        type: money
+        required: true
+  - state: received
+    description: Receive goods or services and match the receipt to the approved purchase order.
+    fields:
+      - name: receipt_number
+        label: Receipt number
+        type: text
+        required: true
+      - name: received_quantity
+        label: Received quantity
+        type: number
+  - state: billed
+    description: Record the supplier bill and perform two- or three-way matching before payment.
+    fields:
+      - name: bill_number
+        label: Bill number
+        type: text
+        required: true
+      - name: bill_due_date
+        label: Bill due date
+        type: date
+  - state: paid
+    description: Execute supplier payment and clear accounts payable against the bill.
+    fields:
+      - name: payment_reference
+        label: Payment reference
+        type: text
+        required: true
+  - state: cancelled
+    description: Cancel the requisition before a purchase order is committed.
+    fields:
+      - name: cancellation_reason
+        label: Cancellation reason
+        type: text
+        required: true

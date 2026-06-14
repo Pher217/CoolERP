@@ -7,6 +7,10 @@
 //! Auth is intentionally absent in this skeleton (ADR-008 dev token).
 //! TODO: OAuth PKCE (ADR-006)
 
+pub mod chat;
+pub mod metrics;
+pub mod reports;
+
 use axum::{
     Json,
     extract::{Path, State},
@@ -40,6 +44,13 @@ pub fn app(pool: PgPool) -> axum::Router {
         .routes(routes!(create_journal_entry))
         .routes(routes!(list_processes))
         .routes(routes!(get_process))
+        .routes(routes!(get_inventory))
+        .routes(routes!(receive_stock))
+        .routes(routes!(chat::chat))
+        .routes(routes!(metrics::get_overview))
+        .routes(routes!(metrics::get_ar_aging))
+        .routes(routes!(reports::trial_balance))
+        .routes(routes!(reports::subledger_reconciliation))
         .split_for_parts();
 
     router
@@ -47,6 +58,9 @@ pub fn app(pool: PgPool) -> axum::Router {
             "/api-docs/openapi.json",
             get(move || async move { Json(api) }),
         )
+        // Permissive CORS for local/dev (browser SPA on a different origin).
+        // Tighten to the known UI origin when the OAuth layer lands (ADR-006).
+        .layer(tower_http::cors::CorsLayer::permissive())
         .with_state(pool)
 }
 
@@ -69,6 +83,25 @@ pub fn app(pool: PgPool) -> axum::Router {
         ListProcessesResponse,
         ProcessResponse,
         TransitionResponse,
+        PostingRuleResponse,
+        StepDetailResponse,
+        StepFieldResponse,
+        InventoryItem,
+        InventoryResponse,
+        ReceiveStockRequest,
+        ReceiveStockResponse,
+        chat::ChatRequest,
+        chat::ChatTurn,
+        chat::ChatResponse,
+        chat::ChatAction,
+        chat::ViewDirective,
+        metrics::OverviewResponse,
+        metrics::AgingBucket,
+        metrics::ArAgingResponse,
+        reports::TrialBalanceLine,
+        reports::TrialBalanceResponse,
+        reports::SubledgerSection,
+        reports::SubledgerReconciliationResponse,
     ))
 )]
 struct ApiDoc;
@@ -394,6 +427,166 @@ pub async fn create_journal_entry(
     }
 }
 
+// ─── Inventory ───────────────────────────────────────────────────────────────
+
+/// One inventory row with a computed on-hand quantity.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct InventoryItem {
+    pub sku: String,
+    pub name: String,
+    /// Net on-hand quantity as a string.  Computed from stock_moves:
+    /// receipts (to_location IS NOT NULL) minus issues (from_location IS NOT NULL).
+    pub on_hand: String,
+}
+
+/// Response body for `GET /inventory`.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct InventoryResponse {
+    pub items: Vec<InventoryItem>,
+}
+
+/// Reusable inventory-on-hand query.  Items with no stock_moves report "0".
+pub async fn list_inventory_rows(pool: &PgPool) -> Result<Vec<InventoryItem>, sqlx::Error> {
+    let rows = sqlx::query_as!(
+        InventoryItem,
+        r#"
+        SELECT
+            i.sku,
+            i.name,
+            (
+                COALESCE(
+                    SUM(CASE WHEN sm.to_location IS NOT NULL THEN sm.qty ELSE 0 END), 0::numeric
+                ) - COALESCE(
+                    SUM(CASE WHEN sm.from_location IS NOT NULL THEN sm.qty ELSE 0 END), 0::numeric
+                )
+            )::numeric(20, 4)::text AS "on_hand!: String"
+        FROM items i
+        LEFT JOIN stock_moves sm ON sm.item_id = i.id
+        GROUP BY i.id, i.sku, i.name
+        ORDER BY i.sku
+        "#
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows)
+}
+
+/// List all inventory items with their on-hand quantities.
+#[utoipa::path(
+    get,
+    path = "/inventory",
+    responses(
+        (status = 200, description = "Inventory list", body = InventoryResponse),
+        (status = 500, description = "Database error", body = ErrorBody),
+    )
+)]
+pub async fn get_inventory(State(pool): State<PgPool>) -> impl IntoResponse {
+    match list_inventory_rows(&pool).await {
+        Ok(items) => (StatusCode::OK, Json(InventoryResponse { items })).into_response(),
+        Err(e) => err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorCode::Internal,
+            format!("database error: {e}"),
+        )
+        .into_response(),
+    }
+}
+
+/// Request body for `POST /inventory/receive`.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ReceiveStockRequest {
+    pub sku: String,
+    pub location_code: String,
+    /// Quantity as a decimal string, parsed by PostgreSQL as NUMERIC.
+    pub qty: String,
+    /// Optional unit cost as a decimal string, parsed by PostgreSQL as NUMERIC.
+    pub unit_cost: Option<String>,
+}
+
+/// Response body for `POST /inventory/receive`.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ReceiveStockResponse {
+    pub move_id: i64,
+    pub sku: String,
+    pub qty: String,
+}
+
+/// Shared receipt logic used by the REST handler and the chat tool executor.
+pub async fn receive_stock_core(
+    pool: &PgPool,
+    body: ReceiveStockRequest,
+) -> Result<ReceiveStockResponse, String> {
+    let item_id: i64 = sqlx::query_scalar!("SELECT id FROM items WHERE sku = $1", body.sku)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| format!("database error: {e}"))?
+        .ok_or_else(|| format!("item not found: {}", body.sku))?;
+
+    let location_id: i64 = sqlx::query_scalar!(
+        "SELECT id FROM locations WHERE code = $1",
+        body.location_code
+    )
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("database error: {e}"))?
+    .ok_or_else(|| format!("location not found: {}", body.location_code))?;
+
+    let move_id: i64 = sqlx::query_scalar::<_, i64>(
+        r#"
+        INSERT INTO stock_moves (item_id, qty, to_location, unit_cost)
+        VALUES ($1, $2::numeric, $3, $4::numeric)
+        RETURNING id
+        "#,
+    )
+    .bind(item_id)
+    .bind(body.qty.clone())
+    .bind(location_id)
+    .bind(body.unit_cost)
+    .fetch_one(pool)
+    .await
+    .map_err(|e| format!("database error: {e}"))?;
+
+    Ok(ReceiveStockResponse {
+        move_id,
+        sku: body.sku,
+        qty: body.qty,
+    })
+}
+
+/// Receive stock into a location.
+#[utoipa::path(
+    post,
+    path = "/inventory/receive",
+    request_body = ReceiveStockRequest,
+    responses(
+        (status = 201, description = "Stock move created", body = ReceiveStockResponse),
+        (status = 404, description = "Item or location not found", body = ErrorBody),
+        (status = 422, description = "Invalid numeric quantity or unit cost", body = ErrorBody),
+        (status = 500, description = "Database error", body = ErrorBody),
+    )
+)]
+pub async fn receive_stock(
+    State(pool): State<PgPool>,
+    Json(body): Json<ReceiveStockRequest>,
+) -> impl IntoResponse {
+    match receive_stock_core(&pool, body).await {
+        Ok(resp) => (StatusCode::CREATED, Json(resp)).into_response(),
+        Err(msg) => {
+            let (status, code) = if msg.contains("not found") {
+                (StatusCode::NOT_FOUND, ErrorCode::Validation)
+            } else if msg.to_lowercase().contains("invalid input syntax")
+                || msg.to_lowercase().contains("numeric")
+            {
+                (StatusCode::UNPROCESSABLE_ENTITY, ErrorCode::Validation)
+            } else {
+                (StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::Internal)
+            };
+            err_response(status, code, msg).into_response()
+        }
+    }
+}
+
 // ─── Process directory helpers ────────────────────────────────────────────────
 
 /// Resolve the directory where process YAML files are stored.
@@ -477,6 +670,8 @@ pub struct ProcessResponse {
     pub states: Vec<String>,
     /// State transitions with optional capability labels.
     pub transitions: Vec<TransitionResponse>,
+    /// Optional rich UI metadata for each process step.
+    pub steps: Vec<StepDetailResponse>,
     /// Mermaid `stateDiagram-v2` source for the full workflow.
     pub mermaid: String,
 }
@@ -487,6 +682,40 @@ pub struct TransitionResponse {
     pub from: String,
     pub to: String,
     pub capability: Option<String>,
+    /// Guard expressions that must pass before this transition fires.
+    #[serde(default)]
+    pub guards: Vec<String>,
+    /// GL posting rule triggered when this transition fires.
+    pub posting_rule: Option<PostingRuleResponse>,
+}
+
+/// GL posting rule: debit one account, credit one or more accounts.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PostingRuleResponse {
+    /// Account code to debit.
+    pub debit: String,
+    /// Account code(s) to credit.  Multiple accounts are joined with ", ".
+    pub credit: String,
+}
+
+/// Rich UI metadata for a process state.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct StepDetailResponse {
+    pub state: String,
+    pub description: Option<String>,
+    pub fields: Vec<StepFieldResponse>,
+    pub documents: Vec<String>,
+    pub gates: Vec<String>,
+    pub kpis: Vec<String>,
+}
+
+/// Field captured while a process step is active.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct StepFieldResponse {
+    pub name: String,
+    pub label: String,
+    pub field_type: String,
+    pub required: bool,
 }
 
 /// Get a process by name.
@@ -549,6 +778,35 @@ pub async fn get_process(Path(name): Path<String>) -> impl IntoResponse {
                 from: t.from.clone(),
                 to: t.to.clone(),
                 capability: t.capability.clone(),
+                guards: t.guards.clone().unwrap_or_default(),
+                posting_rule: t.posting_rule.as_ref().map(|pr| PostingRuleResponse {
+                    debit: pr.debit.clone(),
+                    credit: match &pr.credit {
+                        ol_process::CreditTarget::Single(s) => s.clone(),
+                        ol_process::CreditTarget::Multiple(v) => v.join(", "),
+                    },
+                }),
+            })
+            .collect(),
+        steps: process
+            .steps
+            .iter()
+            .map(|s| StepDetailResponse {
+                state: s.state.clone(),
+                description: s.description.clone(),
+                fields: s
+                    .fields
+                    .iter()
+                    .map(|f| StepFieldResponse {
+                        name: f.name.clone(),
+                        label: f.label.clone(),
+                        field_type: f.field_type.clone(),
+                        required: f.required,
+                    })
+                    .collect(),
+                documents: s.documents.clone(),
+                gates: s.gates.clone(),
+                kpis: s.kpis.clone(),
             })
             .collect(),
         mermaid,

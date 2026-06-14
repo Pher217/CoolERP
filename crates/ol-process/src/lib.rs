@@ -5,17 +5,19 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Process {
     pub process: String,
     pub states: Vec<String>,
     pub transitions: Vec<Transition>,
+    #[serde(default)]
+    pub steps: Vec<StepDetail>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Transition {
     pub from: String,
     pub to: String,
@@ -24,13 +26,37 @@ pub struct Transition {
     pub posting_rule: Option<PostingRule>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StepDetail {
+    pub state: String,
+    pub description: Option<String>,
+    #[serde(default)]
+    pub fields: Vec<StepField>,
+    #[serde(default)]
+    pub documents: Vec<String>,
+    #[serde(default)]
+    pub gates: Vec<String>,
+    #[serde(default)]
+    pub kpis: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StepField {
+    pub name: String,
+    pub label: String,
+    #[serde(rename = "type")]
+    pub field_type: String,
+    #[serde(default)]
+    pub required: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PostingRule {
     pub debit: String,
     pub credit: CreditTarget,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum CreditTarget {
     Single(String),
@@ -121,6 +147,14 @@ impl Process {
             }
         }
 
+        for step in &self.steps {
+            if !states.contains(step.state.as_str()) {
+                return Err(ProcessError::UnknownState {
+                    state: step.state.clone(),
+                });
+            }
+        }
+
         Ok(())
     }
 
@@ -204,6 +238,76 @@ transitions:
 "#;
 
         let error = Process::from_yaml(yaml).expect_err("unknown state should fail validation");
+
+        assert!(matches!(
+            error,
+            ProcessError::UnknownState { state } if state == "posted"
+        ));
+    }
+
+    #[test]
+    fn old_yaml_without_steps_parses_with_empty_steps() {
+        let yaml = customer_invoice_yaml();
+        let process =
+            Process::from_yaml(yaml.as_str()).expect("customer invoice YAML should parse");
+
+        assert!(process.steps.is_empty());
+    }
+
+    #[test]
+    fn rich_yaml_parses_steps_and_fields() {
+        let yaml = std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../processes/order_to_cash.yaml"),
+        )
+        .expect("order-to-cash YAML should be readable");
+
+        let process = Process::from_yaml(yaml.as_str()).expect("rich process YAML should parse");
+
+        let credit_check = process
+            .steps
+            .iter()
+            .find(|step| step.state == "credit_check")
+            .expect("credit_check step should be present");
+
+        assert!(
+            credit_check
+                .fields
+                .iter()
+                .any(|field| field.name == "current_exposure"
+                    && field.label == "Current exposure"
+                    && field.field_type == "money"
+                    && field.required)
+        );
+    }
+
+    #[test]
+    fn bundled_process_yaml_files_parse() {
+        let processes = Process::load_dir(
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../..")
+                .join("processes"),
+        )
+        .expect("bundled process YAML files should parse");
+
+        assert!(
+            processes
+                .iter()
+                .any(|process| process.process == "order_to_cash" && !process.steps.is_empty())
+        );
+    }
+
+    #[test]
+    fn validation_fails_when_step_references_unknown_state() {
+        let yaml = r#"
+process: invalid
+states: [draft]
+transitions: []
+steps:
+  - state: posted
+    description: Posted invoice
+"#;
+
+        let error = Process::from_yaml(yaml).expect_err("unknown step state should fail");
 
         assert!(matches!(
             error,

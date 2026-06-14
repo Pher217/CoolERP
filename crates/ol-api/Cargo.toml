@@ -30,6 +30,7 @@ tracing-subscriber.workspace = true
 utoipa.workspace = true
 utoipa-axum.workspace = true
 uuid.workspace = true
+reqwest.workspace = true
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

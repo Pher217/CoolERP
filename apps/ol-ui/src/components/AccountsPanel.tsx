@@ -1,8 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { RefreshCw } from 'lucide-react'
+
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table'
 import { api, type BalanceResponse } from '../api/client.ts'
 import { formatMoney } from '../lib/money.ts'
 
-// Seeded chart-of-accounts codes (from migrations/seed)
 const SEEDED_ACCOUNTS = ['1000', '4000', '2000', '3000', '5000']
 
 type AccountRow = {
@@ -12,7 +24,6 @@ type AccountRow = {
 }
 
 type Props = {
-  /** Called once on mount with the refresh function so a parent can trigger a reload. */
   onRegisterRefresh?: (fn: () => void) => void
 }
 
@@ -29,12 +40,10 @@ export function AccountsPanel({ onRegisterRefresh }: Props) {
     setLoading(true)
   }, [])
 
-  // Register the refresh handle once on mount.
   useEffect(() => {
     onRegisterRefresh?.(triggerRefresh)
   }, [triggerRefresh, onRegisterRefresh])
 
-  // Fetch balances whenever loading transitions to true.
   useEffect(() => {
     if (!loading) return
     let cancelled = false
@@ -59,55 +68,66 @@ export function AccountsPanel({ onRegisterRefresh }: Props) {
     }
 
     void fetchAll()
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [loading])
 
   if (apiOffline) {
     return (
-      <div className="widget">
-        <h2>Accounts</h2>
-        <p className="muted">API offline — start ol-api to load balances.</p>
-      </div>
+      <Card className="shadow-sm">
+        <CardHeader>
+          <CardTitle>Accounts</CardTitle>
+          <CardDescription>API offline — start ol-api to load balances.</CardDescription>
+        </CardHeader>
+      </Card>
     )
   }
 
   return (
-    <div className="widget">
-      <div className="widget-header">
-        <h2>Accounts</h2>
-        <button
-          className="btn-secondary btn-sm"
+    <Card className="shadow-sm">
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle>Accounts</CardTitle>
+          <CardDescription>Live balances for seeded chart-of-accounts codes.</CardDescription>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
           onClick={triggerRefresh}
           disabled={loading}
           aria-label="Refresh balances"
         >
+          <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           {loading ? 'Loading…' : 'Refresh'}
-        </button>
-      </div>
-      <table className="accounts-table">
-        <thead>
-          <tr>
-            <th>Code</th>
-            <th>Balance</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map(({ code, balance, error }) => (
-            <tr key={code}>
-              <td>{code}</td>
-              <td>
-                {error ? (
-                  <span className="muted">—</span>
-                ) : balance === null ? (
-                  <span className="muted">Loading…</span>
-                ) : (
-                  formatMoney(balance.balance, balance.currency, 'en-US')
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+        </Button>
+      </CardHeader>
+      <CardContent className="p-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-32">Code</TableHead>
+              <TableHead className="text-right">Balance</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map(({ code, balance, error }) => (
+              <TableRow key={code}>
+                <TableCell className="font-medium">{code}</TableCell>
+                <TableCell className="text-right tabular-nums">
+                  {error ? (
+                    <span className="text-muted-foreground">—</span>
+                  ) : balance === null || loading ? (
+                    <Skeleton className="ml-auto h-4 w-24" />
+                  ) : (
+                    formatMoney(balance.balance, balance.currency, 'en-US')
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </CardContent>
+    </Card>
   )
 }

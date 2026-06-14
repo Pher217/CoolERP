@@ -1,0 +1,64 @@
+# Business-process source-of-truth (version-controlled, diffable, machine-legible).
+# The lifecycle of an offer or tender submission.
+process: offer_tender
+states: [draft, submitted, shortlisted, awarded, rejected]
+transitions:
+  - from: draft
+    to: submitted
+    capability: submit_offer
+  - from: submitted
+    to: shortlisted
+    capability: shortlist
+  - from: shortlisted
+    to: awarded
+    capability: award
+  - from: shortlisted
+    to: rejected
+    capability: reject
+  - from: submitted
+    to: rejected
+    capability: decline
+steps:
+  - state: draft
+    description: Assemble the commercial and technical response before formal tender submission.
+    fields:
+      - name: tender_reference
+        label: Tender reference
+        type: text
+        required: true
+      - name: submission_deadline
+        label: Submission deadline
+        type: date
+  - state: submitted
+    description: Submit the tender package and track buyer acknowledgements or clarifications.
+    fields:
+      - name: submitted_at
+        label: Submitted at
+        type: date
+        required: true
+      - name: submitted_value
+        label: Submitted value
+        type: money
+  - state: shortlisted
+    description: Manage shortlisted negotiations, clarifications, and revised offer inputs.
+    fields:
+      - name: clarification_due_date
+        label: Clarification due date
+        type: date
+      - name: revised_value
+        label: Revised value
+        type: money
+  - state: awarded
+    description: Record award details and hand over to quote-to-contract or order processing.
+    fields:
+      - name: award_notice
+        label: Award notice
+        type: text
+        required: true
+  - state: rejected
+    description: Close the tender with buyer feedback and loss reason for future bid analytics.
+    fields:
+      - name: rejection_reason
+        label: Rejection reason
+        type: text
+        required: true

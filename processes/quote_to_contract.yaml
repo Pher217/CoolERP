@@ -1,0 +1,65 @@
+# Business-process source-of-truth (version-controlled, diffable, machine-legible).
+# The quote-to-contract negotiation lifecycle.
+process: quote_to_contract
+states: [quote, negotiation, contract_prep, signed, lost]
+transitions:
+  - from: quote
+    to: negotiation
+    capability: open_negotiation
+  - from: negotiation
+    to: contract_prep
+    capability: prepare_contract
+  - from: contract_prep
+    to: signed
+    capability: sign_contract
+  - from: negotiation
+    to: lost
+    capability: lose_deal
+  - from: quote
+    to: lost
+    capability: abandon
+steps:
+  - state: quote
+    description: Prepare the priced quote and commercial terms for customer review.
+    fields:
+      - name: quote_number
+        label: Quote number
+        type: text
+        required: true
+      - name: quoted_amount
+        label: Quoted amount
+        type: money
+        required: true
+  - state: negotiation
+    description: Track negotiated terms, concessions, legal issues, and decision makers.
+    fields:
+      - name: negotiation_owner
+        label: Negotiation owner
+        type: text
+      - name: target_signature_date
+        label: Target signature date
+        type: date
+  - state: contract_prep
+    description: Prepare the contract documents and route commercial or legal approvals.
+    fields:
+      - name: contract_template
+        label: Contract template
+        type: text
+        required: true
+      - name: approval_status
+        label: Approval status
+        type: select
+  - state: signed
+    description: Capture signature evidence and activate the contract for downstream fulfillment.
+    fields:
+      - name: signed_date
+        label: Signed date
+        type: date
+        required: true
+  - state: lost
+    description: Close the quote or negotiation with a reason and competitor context.
+    fields:
+      - name: loss_reason
+        label: Loss reason
+        type: select
+        required: true
