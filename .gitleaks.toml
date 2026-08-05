@@ -1,0 +1,20 @@
+# gitleaks configuration for OpenERP.
+# Full history was scanned clean on 2026-07-16 apart from the allowlisted class below.
+#
+# The codebase uses UUIDs pervasively as idempotency keys (see the posting engine and
+# every integration test). A UUID is not a secret, but its entropy trips the default
+# generic-api-key rule. Allowlist the UUID shape globally so secret scanning stays
+# actionable instead of noisy. Real credentials (AWS keys, PEM blocks, provider tokens)
+# are still caught by the default ruleset.
+
+title = "OpenERP gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "UUIDs used as idempotency keys / fixtures are not secrets"
+regexTarget = "match"
+regexes = [
+  '''[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}''',
+]

@@ -1,0 +1,23 @@
+# Local dev dependency: PostgreSQL only. The Rust services and the web UI run on
+# the host via `cargo run` / `npm run dev` (see the Makefile and README quickstart).
+# This keeps the "5-minute clone-to-running" path fast and hard to break.
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: openerp
+      POSTGRES_PASSWORD: openerp
+      POSTGRES_DB: openerp
+    ports:
+      # Override the host port with OL_DB_PORT if 5432 is taken locally.
+      - "${OL_DB_PORT:-5432}:5432"
+    volumes:
+      - openerp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openerp -d openerp"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  openerp_pgdata:

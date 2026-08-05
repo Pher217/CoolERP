@@ -2,6 +2,7 @@
 **/*.rs.bk
 .env
 .env.*
+!.env.example
 .DS_Store
 /apps/ol-ui/dist
 /apps/ol-ui/node_modules

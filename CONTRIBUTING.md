@@ -14,11 +14,17 @@ Signed-off-by: Your Name <your.email@example.com>
 
 Use `git commit -s` to add it automatically. PRs with unsigned commits will not be merged.
 
-> Note on licensing: the core is **AGPL-3.0**; the SDK is **MIT OR Apache-2.0**. The
-> project may offer a commercially-licensed edition and a hosted service, which
-> requires the maintainer to hold the rights to relicense. The DCO grants the
-> inbound rights needed for this; a CLA may be introduced before the project
-> accepts substantial external contributions.
+> Note on licensing: the core is **AGPL-3.0**; the SDK is **MIT OR Apache-2.0**.
+> The DCO certifies that you have the right to submit your contribution under the
+> project's existing license — it does **not** grant the maintainer any right to
+> relicense your contribution. It is not a CLA.
+>
+> The project may later offer a commercially-licensed edition and a hosted service,
+> which would require the maintainer to hold relicensing rights. If and when that
+> path is taken, a **Contributor License Agreement (CLA) will be introduced first**,
+> and it would apply to contributions accepted from that point on. Until a CLA is in
+> place, all contributions are inbound under AGPL-3.0 (SDK: MIT OR Apache-2.0) via the
+> DCO only.
 
 ## Before you open a PR
 - `cargo fmt --all --check` and `cargo clippy --all-targets --all-features -- -D warnings` are clean.
