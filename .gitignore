@@ -16,3 +16,6 @@
 overview*.yml
 overview*.png
 console_errors.json
+
+# graphify build output — canonical home is ~/dev/Graphify/{Project}/{repo}/
+graphify-out/
