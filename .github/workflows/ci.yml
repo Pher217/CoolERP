@@ -86,10 +86,12 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0        # full history -- the point is to scan all of it
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITLEAKS_CONFIG: .gitleaks.toml
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run gitleaks
+        run: |
+          curl -fsSL -o gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v8.30.0/gitleaks_8.30.0_linux_x64.tar.gz
+          tar -xzf gitleaks.tar.gz
+          # 8.30 removed the `detect` subcommand; scanning a repo is `gitleaks git <repo>`.
+          ./gitleaks git . --config .gitleaks.toml --redact --exit-code 1
 
   ui:
     name: Web UI (lint, test, build)
