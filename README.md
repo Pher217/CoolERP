@@ -18,11 +18,19 @@
 
 </div>
 
-<p align="center">
-  <b>▶ <a href="docs/claude-desktop.md">Drive the ledger from Claude Desktop</a></b> — the 5-minute demo
-</p>
+## Demo
 
-<p align="center"><sub>Architecture and design rationale: <a href="docs/adr/README.md">docs/adr/README.md</a></sub></p>
+![CoolERP walkthrough](docs/demo/coolerp-walkthrough.gif)
+
+*Overview KPIs → post a balanced journal entry through the UI → the ledger, cash and
+revenue update → the six business processes, each a state machine generated from its
+YAML source.* Recorded against a live `ol-api` and Postgres; the entry posted in the
+clip is real and the figures move because the ledger actually changed.
+
+<p align="center">
+  <b>▶ <a href="docs/claude-desktop.md">Drive the same ledger from Claude Desktop</a></b> — the agent-native demo
+  · <sub><a href="docs/adr/README.md">Architecture &amp; design rationale</a></sub>
+</p>
 
 ---
 

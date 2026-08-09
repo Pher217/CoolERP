@@ -454,3 +454,77 @@ async fn backoff(attempt: u32) {
     let jitter_ms = u64::from(attempt) * 3;
     tokio::time::sleep(std::time::Duration::from_millis(base_ms + jitter_ms)).await;
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// GIVEN a fixed PostRequest whose every hashed field is populated,
+    /// WHEN inputs_hash() is computed,
+    /// THEN it equals a pinned SHA-256 hex vector.
+    ///
+    /// `inputs_hash` is persisted to the append-only `events` table, so its
+    /// output is part of the audit trail forever. Any change to the hashed
+    /// field set, their order, or the digest stack would silently break
+    /// continuity with rows already written. SHA-256 itself is fixed by
+    /// FIPS 180-4, so this vector must survive any sha2/digest version bump --
+    /// if this test fails after a dependency update, the update changed
+    /// behaviour and must not be merged.
+    ///
+    /// The vector was verified against an independent SHA-256 implementation
+    /// over the same documented field order, so it pins the algorithm rather
+    /// than merely echoing whatever this code currently emits.
+    #[test]
+    fn inputs_hash_matches_pinned_vector() {
+        let req = PostRequest {
+            idempotency_key: Uuid::parse_str("11111111-2222-3333-4444-555555555555").unwrap(),
+            journal_code: "GEN".to_string(),
+            entry_date: NaiveDate::from_ymd_opt(2026, 1, 31).unwrap(),
+            effective_date: Some(NaiveDate::from_ymd_opt(2026, 2, 1).unwrap()),
+            memo: Some("pinned vector".to_string()),
+            reference: Some("REF-1".to_string()),
+            actor: "test".to_string(),
+            lines: vec![Line::new("1000", 250_000, 0), Line::new("4000", 0, 250_000)],
+        };
+
+        assert_eq!(
+            inputs_hash(&req),
+            "b845e02b6d47d8bfe7d4b499c0cdbf2c3a58672677aa1cb86432676722389361",
+            "inputs_hash changed -- the persisted audit digest is not stable"
+        );
+    }
+
+    /// GIVEN two requests differing only in where a boundary falls between two
+    /// adjacent variable-length string fields,
+    /// WHEN both are hashed,
+    /// THEN they must not collide.
+    ///
+    /// The hash concatenates variable-length fields with no delimiter, so
+    /// (journal_code="AB", memo="C") and (journal_code="A", memo="BC") feed the
+    /// same byte stream. This test documents that weakness; it is expected to
+    /// FAIL until a delimiter is introduced. See the linked issue.
+    #[test]
+    #[ignore = "known defect: undelimited concatenation allows boundary collisions; tracked separately"]
+    fn inputs_hash_is_not_boundary_ambiguous() {
+        let base = |journal: &str, memo: &str| PostRequest {
+            idempotency_key: Uuid::nil(),
+            journal_code: journal.to_string(),
+            entry_date: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+            effective_date: None,
+            memo: Some(memo.to_string()),
+            reference: None,
+            actor: "test".to_string(),
+            lines: vec![],
+        };
+
+        assert_ne!(
+            inputs_hash(&base("AB", "C")),
+            inputs_hash(&base("A", "BC")),
+            "distinct inputs produced the same audit digest"
+        );
+    }
+}

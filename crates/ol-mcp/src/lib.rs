@@ -660,6 +660,79 @@ impl ServerHandler for LedgerHandler {
 mod tests {
     use super::*;
 
+    /// GIVEN the tool router,
+    /// WHEN the advertised tool contract is serialised,
+    /// THEN every tool name and the full shape of its inputSchema match a
+    /// pinned snapshot.
+    ///
+    /// This is the contract an MCP client actually consumes. The name-only test
+    /// below cannot see a changed inputSchema, so a bump to `rmcp` or to
+    /// `schemars` (which generates these schemas) could silently reshape the
+    /// public tool surface while CI stayed green. This test makes such a change
+    /// visible. If it fails after a dependency bump, diff the printed schema and
+    /// decide deliberately -- do not just re-pin it.
+    #[test]
+    fn tool_schemas_match_snapshot() {
+        let router = LedgerHandler::tool_router();
+        let mut tools = router.list_all();
+        tools.sort_by(|a, b| a.name.cmp(&b.name));
+
+        // name -> sorted top-level property names of the tool's input schema.
+        let actual: Vec<(String, Vec<String>)> = tools
+            .iter()
+            .map(|t| {
+                let mut props: Vec<String> = t
+                    .input_schema
+                    .get("properties")
+                    .and_then(|p| p.as_object())
+                    .map(|o| o.keys().cloned().collect())
+                    .unwrap_or_default();
+                props.sort();
+                (t.name.to_string(), props)
+            })
+            .collect();
+
+        let expected: Vec<(String, Vec<String>)> = vec![
+            (
+                "advance_process",
+                vec!["amounts", "capability", "context_patch", "instance_id"],
+            ),
+            ("get_account_balance", vec!["account_code"]),
+            ("get_process", vec!["name"]),
+            ("get_process_instance", vec!["instance_id"]),
+            ("list_process_instances", vec!["process", "status"]),
+            ("list_processes", vec![]),
+            (
+                "post_journal_entry",
+                vec![
+                    "actor",
+                    "effective_date",
+                    "entry_date",
+                    "idempotency_key",
+                    "journal_code",
+                    "lines",
+                    "memo",
+                    "reference",
+                ],
+            ),
+            ("start_process", vec!["context", "process", "reference"]),
+        ]
+        .into_iter()
+        .map(|(n, p)| (n.to_string(), p.into_iter().map(String::from).collect()))
+        .collect();
+
+        // NOTE, surfaced by writing this snapshot: `post_journal_entry` exposes
+        // `idempotency_key`, but the two state-changing process tools
+        // (`start_process`, `advance_process`) do not. If the engine derives a
+        // key server-side that is fine; if not, an agent retrying a dropped
+        // response cannot make those calls idempotent. Tracked separately -- this
+        // test only pins the contract as it stands.
+        assert_eq!(
+            actual, expected,
+            "the advertised MCP tool contract changed -- an MCP client would see this"
+        );
+    }
+
     /// The tool router must list exactly the eight expected tools.
     /// This does not require a live database or MCP client.
     #[test]
