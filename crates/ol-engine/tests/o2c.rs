@@ -584,12 +584,20 @@ async fn test_concurrent_advance_posts_exactly_once(pool: PgPool) {
         "winner must be at `invoiced`"
     );
 
-    // The loser must be either:
+    // The loser must be one of:
     //   Ok        — idempotent: saw the state already moved to `invoiced`
     //   ConcurrentAdvance — guarded UPDATE found the row already advanced
     //   Db(40001) — REPEATABLE READ serialization failure on FOR UPDATE lock
     //               (the loser's tx was aborted because the winner updated
     //               the same row; this is correct concurrent-protection behaviour)
+    //   IllegalTransition { from: "invoiced" } — the loser took its FOR UPDATE lock
+    //               only after the winner committed, so it read the already-advanced
+    //               state and refused `post_invoice` as illegal from `invoiced`.
+    //               This is the state guard doing exactly its job: it is what
+    //               actually prevents the double-post, since the server-derived
+    //               idempotency key changes once the first attempt commits (#54).
+    //               Omitting this arm made the test flaky — it is a legal outcome
+    //               of the race, not a failure.
     let loser = if res_a.is_ok() { &res_b } else { &res_a };
     match loser {
         Ok(inst) => assert_eq!(
@@ -608,6 +616,18 @@ async fn test_concurrent_advance_posts_exactly_once(pool: PgPool) {
             assert!(
                 is_serialization,
                 "loser DB error must be a serialization failure (40001/40P01), got: {sqlx_err:?}"
+            );
+        }
+        Err(EngineError::IllegalTransition {
+            from, capability, ..
+        }) => {
+            assert_eq!(
+                from, "invoiced",
+                "loser rejected the transition from the post-advance state"
+            );
+            assert_eq!(
+                capability, "post_invoice",
+                "loser rejected the capability it actually attempted"
             );
         }
         Err(other) => panic!("loser returned unexpected error: {other:?}"),
