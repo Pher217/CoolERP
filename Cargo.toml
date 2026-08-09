@@ -1,4 +1,4 @@
-# CoolERP monorepo workspace (GitHub repo is still named `OpenERP` — rename pending, see ADR-023).
+# CoolERP monorepo workspace.
 # NOTE: no Rust toolchain was installed when this was scaffolded (2026-05-29);
 # dependency versions/features are conservative but UNVERIFIED by a real build.
 # Stage 1 first step: install Rust, then `cargo build` and reconcile versions.
@@ -11,7 +11,7 @@ edition = "2024"
 rust-version = "1.85"
 license = "AGPL-3.0-only"
 authors = ["Philippe Hermann <phil.hermann217@gmail.com>"]
-repository = "https://github.com/Pher217/OpenERP"
+repository = "https://github.com/Pher217/CoolERP"
 
 [workspace.dependencies]
 # Async + web

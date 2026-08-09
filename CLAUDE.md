@@ -1,6 +1,6 @@
 # CLAUDE.md — CoolERP (repo)
 
-Repo-specific guidance. Project design docs, decisions, lessons, and research live in the maintainer's Obsidian vault under `02 Projects/CoolERP`, not in this repo.
+Repo-specific guidance. Project design docs, decisions, lessons, and research live in the maintainer's Obsidian vault under `02 Projects/Ideas/CoolERP`, not in this repo.
 
 ## Commands
 ```bash

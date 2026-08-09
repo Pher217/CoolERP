@@ -4,7 +4,7 @@
 
 **The ERP whose primary operator is an AI agent — and whose books cannot be wrong by construction.**
 
-[![CI](https://github.com/Pher217/OpenERP/actions/workflows/ci.yml/badge.svg)](https://github.com/Pher217/OpenERP/actions/workflows/ci.yml)
+[![CI](https://github.com/Pher217/CoolERP/actions/workflows/ci.yml/badge.svg)](https://github.com/Pher217/CoolERP/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![SDK: MIT/Apache-2.0](https://img.shields.io/badge/SDK-MIT%2FApache--2.0-green.svg)](crates/ol-sdk)
 [![Built in Rust](https://img.shields.io/badge/core-Rust-orange.svg)](https://www.rust-lang.org/)
@@ -118,15 +118,15 @@ This is the moment to get in — the foundation is laid, the hard correctness pr
 - 🌍 i18n scaffold (FR / DE / EN)
 - 🧩 Build the Python / TypeScript SDKs from the OpenAPI spec
 
-→ Browse [`good first issue`](https://github.com/Pher217/OpenERP/labels/good%20first%20issue) · read [CONTRIBUTING.md](CONTRIBUTING.md) (DCO sign-off) · meet the [maintainers](MAINTAINERS.md) · see the [roadmap](ROADMAP.md).
+→ Browse [`good first issue`](https://github.com/Pher217/CoolERP/labels/good%20first%20issue) · read [CONTRIBUTING.md](CONTRIBUTING.md) (DCO sign-off) · meet the [maintainers](MAINTAINERS.md) · see the [roadmap](ROADMAP.md).
 
 ```bash
-git clone https://github.com/Pher217/OpenERP && cd OpenERP
+git clone https://github.com/Pher217/CoolERP && cd CoolERP
 cargo test --all          # the core, green
 DATABASE_URL=postgres://… cargo run -p ol-cli -- migrate   # apply the schema
 ```
 
-We're looking for **≥3 maintainers**, especially anyone with real double-entry / accounting depth. If correctness-by-construction and agent-native software is your fight, [open an issue and say hi](https://github.com/Pher217/OpenERP/issues).
+We're looking for **≥3 maintainers**, especially anyone with real double-entry / accounting depth. If correctness-by-construction and agent-native software is your fight, [open an issue and say hi](https://github.com/Pher217/CoolERP/issues).
 
 ## Scope (v0.1)
 
