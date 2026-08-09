@@ -17,6 +17,10 @@
 
 </div>
 
+<p align="center">
+  <b>▶ <a href="docs/claude-desktop.md">Drive the ledger from Claude Desktop</a></b> — the 5-minute demo
+</p>
+
 <p align="center"><sub>Architecture and design rationale: <a href="docs/adr/README.md">docs/adr/README.md</a></sub></p>
 
 ---
@@ -97,8 +101,6 @@ Then, in a second terminal:
 make ui
 ```
 
-`make ui` runs the web UI.
-
 ## Build it with us
 
 This is the moment to get in — the foundation is laid, the hard correctness problems are solved, and the surface area where **you** can ship something visible is wide open.
@@ -112,7 +114,7 @@ This is the moment to get in — the foundation is laid, the hard correctness pr
 ```bash
 git clone https://github.com/Pher217/OpenERP && cd OpenERP
 cargo test --all          # the core, green
-# DATABASE_URL=postgres://… cargo run -p ol-cli -- migrate   # (soon)
+DATABASE_URL=postgres://… cargo run -p ol-cli -- migrate   # apply the schema
 ```
 
 We're looking for **≥3 maintainers**, especially anyone with real double-entry / accounting depth. If correctness-by-construction and agent-native software is your fight, [open an issue and say hi](https://github.com/Pher217/OpenERP/issues).

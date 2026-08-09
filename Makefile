@@ -1,4 +1,4 @@
-# OpenERP developer quickstart. `make demo` takes a clean clone to a running,
+# CoolERP developer quickstart. `make demo` takes a clean clone to a running,
 # seeded API in one command (Docker + Rust toolchain required).
 #
 #   make demo    # db + migrate + seed + print next steps
@@ -8,14 +8,14 @@
 #   make verify  # adversarial proof of the append-only privilege boundary
 #   make down    # stop the database (keeps data); make clean also drops the volume
 
-export DATABASE_URL ?= postgres://openerp:openerp@localhost:5432/openerp
+export DATABASE_URL ?= postgres://coolerp:coolerp@localhost:5432/coolerp
 
 .PHONY: db migrate seed demo api ui ui-install test verify down clean
 
 db: ## start postgres and wait for health
 	docker compose up -d db
 	@echo "waiting for postgres..."
-	@until docker compose exec -T db pg_isready -U openerp -d openerp >/dev/null 2>&1; do sleep 1; done
+	@until docker compose exec -T db pg_isready -U coolerp -d coolerp >/dev/null 2>&1; do sleep 1; done
 	@echo "postgres ready on $${OL_DB_PORT:-5432}"
 
 migrate: db ## apply all migrations (schema + invariants + least-privilege role)

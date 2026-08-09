@@ -636,7 +636,7 @@ fn tools() -> serde_json::Value {
 
 // ─── System prompt ────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT: &str = "You are the OpenERP assistant. You operate a double-entry \
+const SYSTEM_PROMPT: &str = "You are the CoolERP assistant. You operate a double-entry \
 accounting ledger and business-process engine by calling tools. \
 \n\nLEDGER: NEVER compute balances yourself — call get_account_balance. To record money \
 movement, call post_journal_entry with lines whose debits equal credits within each currency \
@@ -696,7 +696,7 @@ struct OllamaToolFunction {
 
 // ─── POST /chat handler ───────────────────────────────────────────────────────
 
-/// Chat with the OpenERP AI assistant.
+/// Chat with the CoolERP AI assistant.
 ///
 /// The assistant uses tool calls to query and update the ledger.
 /// The model never computes balances or touches SQL directly — all ledger

@@ -1,4 +1,4 @@
-# AGENTS.md — OpenERP
+# AGENTS.md — CoolERP
 
 Guidance for AI coding agents contributing to this repo. (AAIF AGENTS.md standard.)
 

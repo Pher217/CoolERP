@@ -1,7 +1,7 @@
 //! ol-ledger — posting engine, SQLx hot path, idempotency.
 //!
 //! [`post_journal_entry`] is the single write path into the ledger. It is the
-//! credibility surface of OpenERP, so correctness is enforced in layers:
+//! credibility surface of CoolERP, so correctness is enforced in layers:
 //!
 //! 1. **Pure pre-check** ([`ol_domain::assert_balanced`]) fails fast on
 //!    unbalanced / malformed input before touching the database.

@@ -1,4 +1,4 @@
--- OpenERP — multi-currency at the journal-line level (per-currency double-entry).
+-- CoolERP — multi-currency at the journal-line level (per-currency double-entry).
 --
 -- Before this, journal_lines had no currency and the balance triggers summed
 -- debits/credits GLOBALLY. A "balanced" entry could mix a USD debit with an EUR

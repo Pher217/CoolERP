@@ -112,7 +112,7 @@ function AppSidebar() {
           </div>
           {!collapsed && (
             <div className="flex min-w-0 flex-col">
-              <span className="truncate text-sm font-semibold leading-tight">OpenERP</span>
+              <span className="truncate text-sm font-semibold leading-tight">CoolERP</span>
               <span className="text-[11px] leading-tight text-muted-foreground">Agent-native ERP</span>
             </div>
           )}
@@ -173,7 +173,7 @@ function routeLabel(pathname: string): string {
   if (pathname.startsWith('/inventory')) return 'Inventory'
   if (pathname.startsWith('/processes')) return 'Processes'
   if (pathname.startsWith('/settings')) return 'Settings'
-  return 'OpenERP'
+  return 'CoolERP'
 }
 
 function BreadcrumbBar() {
@@ -184,7 +184,7 @@ function BreadcrumbBar() {
     <header className="sticky top-0 z-10 flex h-14 items-center gap-2 border-b bg-background/95 px-4 backdrop-blur">
       <SidebarTrigger className="-ml-1 md:hidden" />
       <div className="flex items-center gap-1 text-sm text-muted-foreground">
-        <span>OpenERP</span>
+        <span>CoolERP</span>
         <ChevronRight className="h-4 w-4" />
         <span className="font-medium text-foreground">{label}</span>
       </div>

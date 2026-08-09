@@ -1,4 +1,4 @@
--- OpenERP — materialized per-(account, currency) balance cache.
+-- CoolERP — materialized per-(account, currency) balance cache.
 --
 -- account_balance() previously summed journal_lines on every read — O(n) per
 -- account, the scale cliff every serious ledger (TigerBeetle/Formance/Modern

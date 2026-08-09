@@ -1,4 +1,4 @@
--- OpenERP v0.1 — minimal chart of accounts seed + general journal.
+-- CoolERP v0.1 — minimal chart of accounts seed + general journal.
 -- ON CONFLICT DO NOTHING on both tables so this migration is idempotent and
 -- coexists with test fixtures that insert the same rows (e.g. posting.rs seed()).
 
