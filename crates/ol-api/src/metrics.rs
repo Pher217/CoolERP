@@ -18,7 +18,7 @@ use crate::err_response;
 /// Snapshot of key financial metrics, all in integer cents.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct OverviewResponse {
-    /// Total balance of all asset accounts (debit-positive).
+    /// Balance of the cash account, code `1000` (debit-positive).
     #[schema(value_type = i64, format = Int64)]
     pub cash_cents: i64,
     /// Total balance of all income accounts (credit-positive).
@@ -81,9 +81,10 @@ pub async fn get_overview(State(pool): State<PgPool>) -> impl IntoResponse {
     let result: Result<Option<OverviewRow>, sqlx::Error> = sqlx::query_as(
         r#"
         SELECT
-            -- cash: sum of all asset balances (debit-positive)
+            -- cash: balance of the specific cash account (code '1000'), NOT all
+            -- assets -- summing every asset double-counts AR/inventory into "cash".
             COALESCE(SUM(
-                CASE WHEN a.type = 'asset'
+                CASE WHEN a.code = '1000'
                      THEN COALESCE(b.debits, 0) - COALESCE(b.credits, 0)
                      ELSE 0 END
             ), 0)::bigint AS cash_cents,
