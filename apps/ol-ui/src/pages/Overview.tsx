@@ -156,12 +156,12 @@ export function Overview() {
       </div>
 
       {/* KPI row — 5 cards, clear vertical separation from content below */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <KpiCard label="Cash on hand" value={cashValue} subText="Liquid assets" />
-        <KpiCard label="Revenue" value={revenueValue} subText="Income accounts" />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
+        <KpiCard label="Cash on hand" value={cashValue} subText="Liquid assets" tone="positive" />
+        <KpiCard label="Revenue" value={revenueValue} subText="Income accounts" tone="positive" />
         <KpiCard label="Expenses" value={expensesValue} subText="Cost accounts" />
         <KpiCard label="AR outstanding" value={arValue} subText="Receivables" />
-        <KpiCard label="AP due" value={apValue} subText="Payables" />
+        <KpiCard label="AP due" value={apValue} subText="Payables" tone="negative" />
       </div>
 
       {/* Second row: balances bar chart | AR aging donut */}

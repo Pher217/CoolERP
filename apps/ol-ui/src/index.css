@@ -7,69 +7,74 @@
   - shadcn/ui primitives (Radix + Tailwind v4) provide the component layer.
   - Tremor v3 is Tailwind v3-only and would force a legacy config; we therefore keep
     recharts for charts and use shadcn Card for KPI cards instead of Tremor blocks.
-  - Theme: neutral slate/zinc greys + indigo primary + violet accent, light only.
+  - Theme: warm cream/amber, light only. Cream page ground (#faf7f2), white surfaces, amber primary (#d97706).
 */
 
 @custom-variant dark (&:is(.dark *));
 
-*, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+/*
+  NOTE: do not re-add a bare `* { margin: 0; padding: 0 }` reset here.
+  `@import "tailwindcss"` emits every utility inside `@layer utilities`, and an
+  UNLAYERED rule beats any layered one regardless of specificity -- so such a
+  reset silently zeroes every p-*, m-* and space-y-* in the entire app while
+  leaving colours and borders working, which makes it look like a layout bug
+  rather than a CSS one. Tailwind's preflight already applies this exact reset
+  inside @layer base, where utilities can override it.
+*/
 
 :root {
   font-family: 'Geist Variable', system-ui, -apple-system, sans-serif;
   font-size: 16px;
   color-scheme: light;
-  color: #0f172a;
-  background-color: #f8fafc;
+  color: #27211a;
+  background-color: #faf7f2;
 
   /* Primitive tokens */
   --radius: 0.75rem;
   --background: #ffffff;
-  --foreground: #0f172a;
+  --foreground: #27211a;
   --card: #ffffff;
-  --card-foreground: #0f172a;
+  --card-foreground: #27211a;
   --popover: #ffffff;
-  --popover-foreground: #0f172a;
-  --primary: #4f46e5;
+  --popover-foreground: #27211a;
+  --primary: #d97706;
   --primary-foreground: #ffffff;
-  --secondary: #f1f5f9;
-  --secondary-foreground: #1e293b;
-  --muted: #f1f5f9;
-  --muted-foreground: #64748b;
-  --accent: #8b5cf6;
-  --accent-foreground: #ffffff;
-  --destructive: #ef4444;
-  --border: #e2e8f0;
-  --input: #e2e8f0;
-  --ring: #4f46e5;
-  --chart-1: #4f46e5;
-  --chart-2: #8b5cf6;
-  --chart-3: #06b6d4;
-  --chart-4: #10b981;
-  --chart-5: #f59e0b;
+  --secondary: #f5efe6;
+  --secondary-foreground: #5b5246;
+  --muted: #f5efe6;
+  --muted-foreground: #9a8f7f;
+  --accent: #fdeccb;
+  --accent-foreground: #b45309;
+  --destructive: #dc2626;
+  --border: #ece2d4;
+  --input: #ece2d4;
+  --ring: #d97706;
+  --chart-1: #d97706;
+  --chart-2: #b45309;
+  --chart-3: #16a34a;
+  --chart-4: #0891b2;
+  --chart-5: #7c6f5d;
 
   /* Sidebar tokens */
   --sidebar: #ffffff;
-  --sidebar-foreground: #0f172a;
-  --sidebar-primary: #4f46e5;
+  --sidebar-foreground: #27211a;
+  --sidebar-primary: #d97706;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #f1f5f9;
-  --sidebar-accent-foreground: #1e293b;
-  --sidebar-border: #e2e8f0;
-  --sidebar-ring: #4f46e5;
+  --sidebar-accent: #fdeccb;
+  --sidebar-accent-foreground: #b45309;
+  --sidebar-border: #ece2d4;
+  --sidebar-ring: #d97706;
 
   /* Elevation tokens (soft, consistent shadows) */
-  --shadow-xs: 0 1px 2px 0 rgb(15 23 42 / 0.04);
-  --shadow-sm: 0 1px 3px 0 rgb(15 23 42 / 0.07), 0 1px 2px -1px rgb(15 23 42 / 0.07);
-  --shadow-md: 0 4px 6px -1px rgb(15 23 42 / 0.07), 0 2px 4px -2px rgb(15 23 42 / 0.07);
-  --shadow-lg: 0 10px 15px -3px rgb(15 23 42 / 0.07), 0 4px 6px -4px rgb(15 23 42 / 0.07);
+  --shadow-xs: 0 1px 2px 0 rgb(39 33 26 / 0.04);
+  --shadow-sm: 0 1px 3px 0 rgb(39 33 26 / 0.07), 0 1px 2px -1px rgb(39 33 26 / 0.07);
+  --shadow-md: 0 4px 6px -1px rgb(39 33 26 / 0.07), 0 2px 4px -2px rgb(39 33 26 / 0.07);
+  --shadow-lg: 0 10px 15px -3px rgb(39 33 26 / 0.07), 0 4px 6px -4px rgb(39 33 26 / 0.07);
 }
 
 body {
   min-height: 100vh;
+  background-color: #faf7f2;
 }
 
 #root {

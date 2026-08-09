@@ -19,6 +19,18 @@ const badgeVariants = cva(
         ghost:
           "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
         link: "text-primary underline-offset-4 hover:underline",
+        // ERP document-status pills
+        draft: "bg-[#f1f5f9] text-[#475569]",
+        confirmed: "bg-[#fdeccb] text-[#b45309]",
+        delivered: "bg-[#dbeafe] text-[#1d4ed8]",
+        invoiced: "bg-[#ede9fe] text-[#6d28d9]",
+        paid: "bg-[#dcfce7] text-[#166534]",
+        unpaid: "bg-[#f5efe6] text-[#5b5246]",
+        partlyPaid: "bg-[#fef3c7] text-[#92400e]",
+        overdue: "bg-[#fee2e2] text-[#991b1b]",
+        cancelled: "bg-[#f1f5f9] text-[#94a3b8]",
+        lowStock: "bg-[#fee2e2] text-[#991b1b]",
+        inStock: "bg-[#dcfce7] text-[#166534]",
       },
     },
     defaultVariants: {
