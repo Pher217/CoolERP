@@ -1,6 +1,6 @@
 <div align="center">
 
-# OpenERP
+# CoolERP
 
 **The ERP whose primary operator is an AI agent — and whose books cannot be wrong by construction.**
 
@@ -17,13 +17,15 @@
 
 </div>
 
+<p align="center"><sub>Architecture and design rationale: <a href="docs/adr/README.md">docs/adr/README.md</a></sub></p>
+
 ---
 
 ## The inversion
 
 Every legacy ERP — SAP, Oracle, even Odoo — works the same way: a human clicks through a UI, and the database *trusts the UI* to keep the books straight. Decades of bugs, reconciliation nightmares, and audit theatre flow from that single misplaced trust.
 
-**OpenERP inverts it.** The **AI agent is the primary operator**, driving the ledger through a typed [MCP](https://modelcontextprotocol.io) capability surface — and correctness is enforced *in the database*, where it cannot be bypassed by any client, human or machine.
+**CoolERP inverts it.** The **AI agent is the primary operator**, driving the ledger through a typed [MCP](https://modelcontextprotocol.io) capability surface — and correctness is enforced *in the database*, where it cannot be bypassed by any client, human or machine.
 
 You don't *hope* the books balance. They **cannot** not-balance.
 
@@ -41,7 +43,7 @@ The posting engine is property-tested *and* hammered with concurrent races (12 w
 
 ## Agent-native, human-respected
 
-The agent acts; the human watches, approves, and steps in — both over the *same* typed API, the same scoped OAuth, the same audit trail. Every business workflow is a version-controlled state machine in plain YAML, so "what is this invoice allowed to do next?" has one answer, and it's diffable:
+The agent acts; the human watches, approves, and steps in — both over the same typed API and the same audit trail. Scoped OAuth for the MCP and REST surfaces is designed in [docs/adr/0006-mcp-auth-cimd-over-rfc7591.md](docs/adr/0006-mcp-auth-cimd-over-rfc7591.md) but not yet wired; the API currently runs unauthenticated in dev mode. See [SECURITY.md](SECURITY.md). Every business workflow is a version-controlled state machine in plain YAML, so "what is this invoice allowed to do next?" has one answer, and it's diffable:
 
 ```mermaid
 stateDiagram-v2
@@ -58,7 +60,9 @@ That diagram isn't hand-drawn — it's **generated from the workflow's YAML sour
 This is a deliberate contributor bargain, not a purity test:
 
 - 🦀 **Rust where it earns its place** — the posting engine, the invariant-enforcing core, the event store. Performance, memory safety, and compile-time correctness are non-negotiable *there*.
-- 🐍🟦 **Python & TypeScript where you live** — the MCP server speaks a language-agnostic protocol, the SDKs ship in **Python and TypeScript first**, and the web UI is React. Integrating, scripting, and extending OpenERP **never requires writing Rust.**
+- 🐍🟦 **Python & TypeScript where you live** — the MCP server speaks a language-agnostic protocol, the SDKs ship in **Python and TypeScript first**, and the web UI is React. Integrating, scripting, and extending CoolERP **never requires writing Rust.**
+
+These architectural choices are recorded in [docs/adr/README.md](docs/adr/README.md).
 
 It's the pattern the best open engines already use — a fast, safe core wrapped in accessible clients (AppFlowy's Rust core + Flutter UI; Zoo/KittyCAD's Rust core + TypeScript app). **Contributions in Python and TypeScript are first-class.** Bring your stack.
 
@@ -71,32 +75,47 @@ Honest status — this is early, and we're building in the open:
 | `ol-domain` — double-entry invariants | ✅ implemented + property-tested |
 | `migrations` — schema + DB-enforced invariants | ✅ done (balance + append-only triggers) |
 | `ol-ledger` — posting engine (`post_journal_entry`, balances) | ✅ done, concurrency- & adversarially-reviewed |
-| `ol-process` — workflow YAML → diagram | ✅ in review |
-| `ol-api` — REST + OpenAPI · `ol-sdk` — typed errors | 🚧 in progress |
-| `ol-mcp` — MCP server + OAuth 2.1 · `apps/ol-ui` — React web app | 🔜 next |
+| `ol-process` — workflow engine (`processes/*.yaml` → state machine + Mermaid) | ✅ done |
+| `ol-api` — REST + OpenAPI | ✅ works |
+| `ol-mcp` — MCP server | ✅ works; authentication is designed but not wired — it runs unauthenticated in dev mode (see [SECURITY.md](SECURITY.md)) |
+| `apps/ol-ui` — React web app | ✅ works |
+| `ol-events` — event store + replay | 🚧 stub; the event store is append-only, replay is not finished |
 
-There is **no running app yet** — the nearest you can drive today is the ledger crate and (soon) the `ol post` CLI. We're not going to pretend otherwise. What *is* real is the part that's hardest to retrofit: a correct, concurrent, audit-replayable core.
+You can run the app locally today; the core is solid and the quickstart below will get you a ledger, API, and UI in minutes.
+
+## Quickstart
+
+```bash
+docker compose up -d db
+make demo
+make api
+```
+
+Then, in a second terminal:
+
+```bash
+make ui
+```
+
+`make ui` runs the web UI.
 
 ## Build it with us
 
 This is the moment to get in — the foundation is laid, the hard correctness problems are solved, and the surface area where **you** can ship something visible is wide open.
 
 **Good first issues** (no Rust required for several):
-- 🎨 Scaffold the React + Vite + TS web UI (`apps/ol-ui`)
-- 🔄 Render the live workflow view (Mermaid from `processes/*.yaml`)
-- 💱 `formatMoney(cents, currency, locale)` — integer cents, locale-correct, zero float math
 - 🌍 i18n scaffold (FR / DE / EN)
 - 🧩 Build the Python / TypeScript SDKs from the OpenAPI spec
 
-→ Browse [`good first issue`](https://github.com/Pher217/openerp/labels/good%20first%20issue) · read [CONTRIBUTING.md](CONTRIBUTING.md) (DCO sign-off) · meet the [maintainers](MAINTAINERS.md) · see the [roadmap](ROADMAP.md).
+→ Browse [`good first issue`](https://github.com/Pher217/OpenERP/labels/good%20first%20issue) · read [CONTRIBUTING.md](CONTRIBUTING.md) (DCO sign-off) · meet the [maintainers](MAINTAINERS.md) · see the [roadmap](ROADMAP.md).
 
 ```bash
-git clone https://github.com/Pher217/openerp && cd openerp
+git clone https://github.com/Pher217/OpenERP && cd OpenERP
 cargo test --all          # the core, green
 # DATABASE_URL=postgres://… cargo run -p ol-cli -- migrate   # (soon)
 ```
 
-We're looking for **≥3 maintainers**, especially anyone with real double-entry / accounting depth. If correctness-by-construction and agent-native software is your fight, [open an issue and say hi](https://github.com/Pher217/openerp/issues).
+We're looking for **≥3 maintainers**, especially anyone with real double-entry / accounting depth. If correctness-by-construction and agent-native software is your fight, [open an issue and say hi](https://github.com/Pher217/OpenERP/issues).
 
 ## Scope (v0.1)
 
