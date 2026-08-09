@@ -42,7 +42,7 @@
   --secondary: #f5efe6;
   --secondary-foreground: #5b5246;
   --muted: #f5efe6;
-  --muted-foreground: #9a8f7f;
+  --muted-foreground: #6f6656; /* AA: 5.66:1 on white, 4.95:1 on --muted */
   --accent: #fdeccb;
   --accent-foreground: #b45309;
   --destructive: #dc2626;
@@ -50,7 +50,7 @@
   --input: #ece2d4;
   --ring: #d97706;
   --chart-1: #d97706;
-  --chart-2: #b45309;
+  --chart-2: #1d4ed8;
   --chart-3: #16a34a;
   --chart-4: #0891b2;
   --chart-5: #7c6f5d;

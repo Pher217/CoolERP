@@ -12,6 +12,7 @@ type KpiCardProps = {
 const toneBar = {
   default: 'bg-primary',
   positive: 'bg-[#16a34a]',
+  /* Reserved for genuine problems (e.g. overdue), not for ordinary liabilities. */
   negative: 'bg-[#dc2626]',
 } as const
 
@@ -23,13 +24,11 @@ export function KpiCard({ label, value, subText, tone = 'default' }: KpiCardProp
       <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
         {label}
       </p>
-      {/* Money is the widest content here, so it gets tabular figures and a
-          size that steps up only when the column is actually wide enough.
-          title= keeps the full value reachable if it ever does truncate. */}
-      <p
-        title={value}
-        className="mt-2 truncate text-2xl font-bold tabular-nums tracking-tight text-foreground xl:text-[1.75rem]"
-      >
+      {/* A clipped money figure is a trust defect in an accounting product --
+          "€507,00…" or a plausible-looking "€50,700" is worse than a value that
+          wraps onto two lines. So: never truncate, wrap instead, and keep
+          tabular figures so columns of numbers stay aligned. */}
+      <p className="mt-2 text-2xl font-bold tabular-nums tracking-tight break-words text-foreground xl:text-[1.75rem]">
         {value}
       </p>
       {subText && <p className="mt-1 truncate text-xs text-muted-foreground">{subText}</p>}

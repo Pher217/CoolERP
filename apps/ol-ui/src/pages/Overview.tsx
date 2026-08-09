@@ -161,7 +161,7 @@ export function Overview() {
         <KpiCard label="Revenue" value={revenueValue} subText="Income accounts" tone="positive" />
         <KpiCard label="Expenses" value={expensesValue} subText="Cost accounts" />
         <KpiCard label="AR outstanding" value={arValue} subText="Receivables" />
-        <KpiCard label="AP due" value={apValue} subText="Payables" tone="negative" />
+        <KpiCard label="AP due" value={apValue} subText="Payables" />
       </div>
 
       {/* Second row: balances bar chart | AR aging donut */}
