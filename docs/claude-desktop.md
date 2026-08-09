@@ -91,6 +91,28 @@ What makes this different from an ERP with a chat bot bolted on:
 Run `make api` and `make ui` alongside it, and the ledger and trial balance in
 the web UI update as the agent posts.
 
+## Watch it run
+
+A recorded walkthrough of the capability surface — no Claude Desktop required, because it drives
+`ol-mcp` over stdio exactly as an agent would:
+
+```bash
+asciinema play docs/coolerp-mcp-demo.cast
+```
+
+It starts an `order_to_cash` instance, asks the engine what is legal, attempts an **illegal**
+transition and gets refused with the reason, walks the legal path instead, posts a real journal
+entry, and prints the resulting balances straight from the ledger.
+
+Reproduce it against your own database with:
+
+```bash
+DATABASE_URL=... PROCESSES_DIR="$PWD/processes" bash scripts/mcp_demo.sh
+```
+
+> The recording's *pacing* was adjusted for readability; the terminal output itself is a verbatim
+> capture of a real run.
+
 ## Verifying the server without Claude Desktop
 
 `ol-mcp` speaks MCP over stdio, so you can drive it directly:
