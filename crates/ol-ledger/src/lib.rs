@@ -508,7 +508,7 @@ mod tests {
     /// same byte stream. This test documents that weakness; it is expected to
     /// FAIL until a delimiter is introduced. See the linked issue.
     #[test]
-    #[ignore = "known defect: undelimited concatenation allows boundary collisions; tracked separately"]
+    #[ignore = "known defect: undelimited concatenation allows boundary collisions; tracked in #53"]
     fn inputs_hash_is_not_boundary_ambiguous() {
         let base = |journal: &str, memo: &str| PostRequest {
             idempotency_key: Uuid::nil(),
