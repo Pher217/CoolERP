@@ -4,6 +4,7 @@
 
 **The ERP whose primary operator is an AI agent — and whose books cannot be wrong by construction.**
 
+[![CI](https://github.com/Pher217/OpenERP/actions/workflows/ci.yml/badge.svg)](https://github.com/Pher217/OpenERP/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![SDK: MIT/Apache-2.0](https://img.shields.io/badge/SDK-MIT%2FApache--2.0-green.svg)](crates/ol-sdk)
 [![Built in Rust](https://img.shields.io/badge/core-Rust-orange.svg)](https://www.rust-lang.org/)

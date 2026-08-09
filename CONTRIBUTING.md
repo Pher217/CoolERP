@@ -2,6 +2,8 @@
 
 Thank you for your interest. CoolERP is an agent-native, double-entry-correct ERP where **accounting correctness is the entire credibility surface** — contributions are held to a high bar.
 
+This project follows the [Contributor Covenant 2.1](CODE_OF_CONDUCT.md).
+
 ## Developer Certificate of Origin (DCO)
 
 All contributions require a DCO sign-off. By signing off you certify the
