@@ -66,7 +66,18 @@ stateDiagram-v2
     draft --> void: void_invoice
 ```
 
-That diagram isn't hand-drawn — it's **generated from the workflow's YAML source of truth**, so the human view of a process can never drift from what the engine actually enforces.
+Each arrow is an MCP capability the agent calls — not a UI click — and each one carries the
+guards and posting rule from the same YAML, enforced again by a database trigger at commit:
+
+| capability | guards | posts |
+|---|---|---|
+| `post_invoice` | `lines_nonempty`, `totals_balance` | DR `accounts_receivable` / CR `sales_revenue` + `tax_payable` |
+| `register_payment` | — | cash posting for the invoice's remaining balance |
+| `void_invoice` | — | none — reachable only from `draft`, before money has moved |
+
+That diagram isn't hand-drawn — it's the literal output of [`Process::to_mermaid`](crates/ol-process/src/lib.rs),
+**generated from the workflow's YAML source of truth** ([`processes/customer_invoice.yaml`](processes/customer_invoice.yaml)),
+so the human view of a process can never drift from what the engine actually enforces.
 
 ## Rust at the core, polyglot at the edges
 
