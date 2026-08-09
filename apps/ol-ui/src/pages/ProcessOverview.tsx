@@ -377,63 +377,66 @@ export function ProcessOverview() {
               )}
             </CardContent>
           </Card>
-
-          <Card className="shadow-sm">
-            <CardHeader>
-              <CardTitle>State machine</CardTitle>
-              <CardDescription>
-                Full flow and transitions for {displayName}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Tabs defaultValue="diagram">
-                <TabsList variant="line">
-                  <TabsTrigger value="diagram">Diagram</TabsTrigger>
-                  <TabsTrigger value="transitions">Transitions</TabsTrigger>
-                </TabsList>
-                <TabsContent value="diagram" className="pt-4">
-                  <MermaidDiagram chart={detail.data.mermaid} />
-                </TabsContent>
-                <TabsContent value="transitions" className="pt-4">
-                  {detail.data.transitions.length === 0 ? (
-                    <EmptyBlock>No transitions defined.</EmptyBlock>
-                  ) : (
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>From</TableHead>
-                          <TableHead>To</TableHead>
-                          <TableHead>Capability</TableHead>
-                          <TableHead>Guards</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {detail.data.transitions.map((transition, index) => (
-                          <TableRow key={index}>
-                            <TableCell className="font-medium">
-                              {humanize(transition.from)}
-                            </TableCell>
-                            <TableCell>{humanize(transition.to)}</TableCell>
-                            <TableCell>
-                              {transition.capability ?? (
-                                <span className="text-muted-foreground">—</span>
-                              )}
-                            </TableCell>
-                            <TableCell>
-                              {transition.guards && transition.guards.length > 0
-                                ? transition.guards.join(', ')
-                                : '—'}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  )}
-                </TabsContent>
-              </Tabs>
-            </CardContent>
-          </Card>
         </>
+      )}
+
+      {detail.status === 'ok' &&
+        (detail.data.transitions.length > 0 || detail.data.mermaid.trim().length > 0) && (
+        <Card className="shadow-sm">
+          <CardHeader>
+            <CardTitle>State machine</CardTitle>
+            <CardDescription>
+              Full flow and transitions for {displayName}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Tabs defaultValue="diagram">
+              <TabsList variant="line">
+                <TabsTrigger value="diagram">Diagram</TabsTrigger>
+                <TabsTrigger value="transitions">Transitions</TabsTrigger>
+              </TabsList>
+              <TabsContent value="diagram" className="pt-4">
+                <MermaidDiagram chart={detail.data.mermaid} />
+              </TabsContent>
+              <TabsContent value="transitions" className="pt-4">
+                {detail.data.transitions.length === 0 ? (
+                  <EmptyBlock>No transitions defined.</EmptyBlock>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>From</TableHead>
+                        <TableHead>To</TableHead>
+                        <TableHead>Capability</TableHead>
+                        <TableHead>Guards</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {detail.data.transitions.map((transition, index) => (
+                        <TableRow key={index}>
+                          <TableCell className="font-medium">
+                            {humanize(transition.from)}
+                          </TableCell>
+                          <TableCell>{humanize(transition.to)}</TableCell>
+                          <TableCell>
+                            {transition.capability ?? (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {transition.guards && transition.guards.length > 0
+                              ? transition.guards.join(', ')
+                              : '—'}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
       )}
     </div>
   )
