@@ -584,12 +584,33 @@ async fn test_concurrent_advance_posts_exactly_once(pool: PgPool) {
         "winner must be at `invoiced`"
     );
 
-    // The loser must be either:
+    // The loser must be one of:
     //   Ok        — idempotent: saw the state already moved to `invoiced`
     //   ConcurrentAdvance — guarded UPDATE found the row already advanced
     //   Db(40001) — REPEATABLE READ serialization failure on FOR UPDATE lock
     //               (the loser's tx was aborted because the winner updated
     //               the same row; this is correct concurrent-protection behaviour)
+    //   IllegalTransition { from: "invoiced" } — the loser took its FOR UPDATE lock
+    //               only after the winner committed, so it read the already-advanced
+    //               state and refused `post_invoice` as illegal from `invoiced`.
+    //               Omitting this arm made the test flaky; it is a legal outcome of
+    //               the race, not a failure of the ledger invariant.
+    //
+    //               TOLERATED, NOT ENDORSED. This outcome is safe but NOT idempotent:
+    //               a caller retrying a dropped response gets an error rather than a
+    //               replay of the original success. That is exactly the limitation
+    //               tracked in #54 — the server-derived key includes the step count,
+    //               so it cannot dedupe a post-commit retry. This test is scoped to
+    //               ledger exactly-once safety (no double-post), which the GL
+    //               assertions below carry; it deliberately does not assert a retry
+    //               contract. Do not read this arm as blessing the current retry
+    //               semantics.
+    //
+    //               NOTE ON COVERAGE: `tokio::join!` starts both futures together but
+    //               does not force their transactions to overlap. Accepting this arm
+    //               means the test can pass on a run where the loser began only after
+    //               the winner committed — i.e. without exercising lock contention at
+    //               all. Real contention coverage would need a barrier or a test hook.
     let loser = if res_a.is_ok() { &res_b } else { &res_a };
     match loser {
         Ok(inst) => assert_eq!(
@@ -608,6 +629,18 @@ async fn test_concurrent_advance_posts_exactly_once(pool: PgPool) {
             assert!(
                 is_serialization,
                 "loser DB error must be a serialization failure (40001/40P01), got: {sqlx_err:?}"
+            );
+        }
+        Err(EngineError::IllegalTransition {
+            from, capability, ..
+        }) => {
+            assert_eq!(
+                from, "invoiced",
+                "loser rejected the transition from the post-advance state"
+            );
+            assert_eq!(
+                capability, "post_invoice",
+                "loser rejected the capability it actually attempted"
             );
         }
         Err(other) => panic!("loser returned unexpected error: {other:?}"),
