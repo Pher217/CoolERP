@@ -723,10 +723,12 @@ mod tests {
 
         // NOTE, surfaced by writing this snapshot: `post_journal_entry` exposes
         // `idempotency_key`, but the two state-changing process tools
-        // (`start_process`, `advance_process`) do not. If the engine derives a
-        // key server-side that is fine; if not, an agent retrying a dropped
-        // response cannot make those calls idempotent. Tracked separately -- this
-        // test only pins the contract as it stands.
+        // (`start_process`, `advance_process`) do not. Analysed in #54:
+        // `advance_process` is covered incidentally by the illegal-transition
+        // guard (its server-derived key changes once the first attempt commits,
+        // so the key itself does not dedupe a retry), but `start_process` has no
+        // idempotency at all and a retried call creates a duplicate instance.
+        // This test only pins the contract as it stands.
         assert_eq!(
             actual, expected,
             "the advertised MCP tool contract changed -- an MCP client would see this"
