@@ -1,6 +1,6 @@
-# ol-ui — OpenERP Web App
+# ol-ui — CoolERP Web App
 
-React 19 + Vite + TypeScript browser SPA for the OpenERP REST API.
+React 19 + Vite + TypeScript browser SPA for the CoolERP REST API.
 
 ## Prerequisites
 

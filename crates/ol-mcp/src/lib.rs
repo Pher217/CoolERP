@@ -1,4 +1,4 @@
-//! ol-mcp — MCP server exposing OpenERP's typed, idempotent capabilities.
+//! ol-mcp — MCP server exposing CoolERP's typed, idempotent capabilities.
 //!
 //! Discrete named capabilities only — NO admin shell, NO raw-SQL `execute` tool.
 //!

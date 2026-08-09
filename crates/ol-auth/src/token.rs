@@ -6,7 +6,7 @@ use uuid::Uuid;
 use crate::error::{AuthError, Result};
 use crate::keys::SigningKeys;
 
-/// Standard JWT claims used by the OpenERP OAuth 2.1 AS.
+/// Standard JWT claims used by the CoolERP OAuth 2.1 AS.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TokenClaims {
     /// Issuer (`iss`).

@@ -1,7 +1,11 @@
 # cargo-deny config — license + supply-chain policy (CI: `cargo deny check`)
 [licenses]
 allow = [
+    # This project's own crates declare "AGPL-3.0-only" (ADR-003). SPDX treats
+    # that as a distinct identifier from the bare "AGPL-3.0", so both are listed
+    # -- without the -only form, cargo-deny rejects our own workspace crates.
     "AGPL-3.0",
+    "AGPL-3.0-only",
     "Apache-2.0",
     "MIT",
     "BSD-2-Clause",
@@ -9,6 +13,10 @@ allow = [
     "ISC",
     "Unicode-3.0",
     "Zlib",
+    # webpki-roots ships the Mozilla CA root store under the Community Data
+    # License Agreement - Permissive. It is a permissive data licence with no
+    # copyleft reach into our code.
+    "CDLA-Permissive-2.0",
 ]
 confidence-threshold = 0.9
 
@@ -18,6 +26,10 @@ wildcards = "allow"
 
 [advisories]
 yanked = "deny"
+# 'paste' is a transitive dependency flagged by RUSTSEC-2024-0436; it is
+# unmaintained rather than vulnerable. Revisit when the upstream dependency
+# drops it.
+ignore = ["RUSTSEC-2024-0436"]
 
 [sources]
 unknown-registry = "deny"

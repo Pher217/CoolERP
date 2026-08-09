@@ -5,19 +5,19 @@ services:
   db:
     image: postgres:17
     environment:
-      POSTGRES_USER: openerp
-      POSTGRES_PASSWORD: openerp
-      POSTGRES_DB: openerp
+      POSTGRES_USER: coolerp
+      POSTGRES_PASSWORD: coolerp
+      POSTGRES_DB: coolerp
     ports:
       # Override the host port with OL_DB_PORT if 5432 is taken locally.
       - "${OL_DB_PORT:-5432}:5432"
     volumes:
-      - openerp_pgdata:/var/lib/postgresql/data
+      - coolerp_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U openerp -d openerp"]
+      test: ["CMD-SHELL", "pg_isready -U coolerp -d coolerp"]
       interval: 3s
       timeout: 3s
       retries: 20
 
 volumes:
-  openerp_pgdata:
+  coolerp_pgdata:

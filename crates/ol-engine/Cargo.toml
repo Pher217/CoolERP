@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Durable process engine: state machine + GL posting orchestration for OpenERP."
+description = "Durable process engine: state machine + GL posting orchestration for CoolERP."
 
 [dependencies]
 ol-domain = { path = "../ol-domain" }

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    about: Report a vulnerability privately instead of opening a public issue.
+    url: https://github.com/Pher217/OpenERP/security/advisories/new

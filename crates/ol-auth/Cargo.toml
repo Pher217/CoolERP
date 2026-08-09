@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Pure crypto/token core for the OpenERP OAuth 2.1 Authorization Server."
+description = "Pure crypto/token core for the CoolERP OAuth 2.1 Authorization Server."
 
 [dependencies]
 jsonwebtoken.workspace = true

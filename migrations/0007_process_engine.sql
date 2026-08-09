@@ -1,4 +1,4 @@
--- OpenERP — durable process engine tables.
+-- CoolERP — durable process engine tables.
 -- Tracks multi-step business-process instances and their GL postings.
 
 -- ---------------------------------------------------------------------------

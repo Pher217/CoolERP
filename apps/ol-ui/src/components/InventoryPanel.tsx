@@ -22,18 +22,32 @@ type LoadState =
 export function InventoryPanel() {
   const [state, setState] = useState<LoadState>({ status: 'loading' })
 
-  async function load() {
+  // Manual refresh: reset to 'loading' first, since there is already content
+  // on screen that the user asked to replace.
+  function reload() {
     setState({ status: 'loading' })
-    try {
-      const resp = await api.inventory()
-      setState({ status: 'ok', items: resp.items })
-    } catch {
-      setState({ status: 'error' })
-    }
+    void api
+      .inventory()
+      .then((resp) => setState({ status: 'ok', items: resp.items }))
+      .catch(() => setState({ status: 'error' }))
   }
 
+  // Mount fetch. State already starts as 'loading', so this must not set it
+  // again synchronously. `cancelled` guards against a resolve landing after
+  // unmount (or after a fast remount in StrictMode).
   useEffect(() => {
-    void load()
+    let cancelled = false
+    void (async () => {
+      try {
+        const resp = await api.inventory()
+        if (!cancelled) setState({ status: 'ok', items: resp.items })
+      } catch {
+        if (!cancelled) setState({ status: 'error' })
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   return (
@@ -49,7 +63,7 @@ export function InventoryPanel() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => void load()}
+            onClick={() => reload()}
             disabled={state.status === 'loading'}
             aria-label="Refresh inventory"
           >

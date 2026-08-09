@@ -135,8 +135,12 @@ async fn overview_ar_cents_reflects_account_1100(pool: PgPool) {
 
     // ar_cents = balance of 1100 = debits – credits = 30_000
     assert_eq!(body["ar_cents"], 30_000, "ar_cents");
-    // cash_cents includes ALL asset accounts; 1100 is also asset
-    assert_eq!(body["cash_cents"], 30_000, "cash_cents includes 1100");
+    // cash_cents is scoped to account 1000 only. An AR invoice moves no cash,
+    // so cash must stay 0 -- it must NOT pick up the 1100 balance.
+    assert_eq!(
+        body["cash_cents"], 0,
+        "invoicing is not a cash receipt; cash_cents must exclude AR (1100)"
+    );
 }
 
 /// expenses_cents reflects expense account balances (debit-positive).
@@ -157,11 +161,67 @@ async fn overview_expenses_after_cogs_entry(pool: PgPool) {
     assert_eq!(status, StatusCode::OK, "body={body}");
 
     assert_eq!(body["expenses_cents"], 12_000, "expenses_cents");
-    // 1200 Inventory is asset with a credit → balance = 0 - 12_000 = -12_000,
-    // so cash_cents (sum of asset balances) should be -12_000
+    // 1200 Inventory is an asset, but cash_cents is scoped to account 1000.
+    // Consuming inventory moves no cash, so cash must stay 0.
     assert_eq!(
-        body["cash_cents"], -12_000,
-        "cash_cents reflects negative inventory balance"
+        body["cash_cents"], 0,
+        "COGS against inventory moves no cash; cash_cents must exclude 1200"
+    );
+}
+
+/// GIVEN a ledger holding cash, receivables and inventory simultaneously,
+/// WHEN GET /metrics/overview is called,
+/// THEN cash_cents reports ONLY the cash account (1000), not the sum of all
+/// assets. Regression for the dashboard KPI that read 294.00 instead of 714.00
+/// because every asset account was folded into "cash" (found 2026-06-14).
+#[sqlx::test(migrations = "../../migrations")]
+async fn overview_cash_excludes_non_cash_assets(pool: PgPool) {
+    // Dr 1000 Cash 71_400 / Cr 4000 Revenue 71_400  → the only real cash.
+    post_entry(
+        pool.clone(),
+        "44444444-4444-4444-4444-444444444001",
+        json!([
+            { "account_code": "1000", "debit": 71_400, "credit": 0 },
+            { "account_code": "4000", "debit": 0, "credit": 71_400 }
+        ]),
+    )
+    .await;
+
+    // Dr 1100 AR 42_000 / Cr 4000 Revenue 42_000  → asset, but not cash.
+    post_entry(
+        pool.clone(),
+        "44444444-4444-4444-4444-444444444002",
+        json!([
+            { "account_code": "1100", "debit": 42_000, "credit": 0 },
+            { "account_code": "4000", "debit": 0, "credit": 42_000 }
+        ]),
+    )
+    .await;
+
+    // Dr 1200 Inventory 18_000 / Cr 2000 AP 18_000 → asset, but not cash.
+    post_entry(
+        pool.clone(),
+        "44444444-4444-4444-4444-444444444003",
+        json!([
+            { "account_code": "1200", "debit": 18_000, "credit": 0 },
+            { "account_code": "2000", "debit": 0, "credit": 18_000 }
+        ]),
+    )
+    .await;
+
+    let (status, body) = get(pool, "/metrics/overview").await;
+    assert_eq!(status, StatusCode::OK, "body={body}");
+
+    // The whole point: 71_400, NOT 71_400 + 42_000 + 18_000 = 131_400.
+    assert_eq!(
+        body["cash_cents"], 71_400,
+        "cash_cents must be account 1000 alone, excluding AR (1100) and inventory (1200)"
+    );
+    assert_eq!(body["ar_cents"], 42_000, "ar_cents is account 1100");
+    assert_eq!(body["ap_cents"], 18_000, "ap_cents is account 2000");
+    assert_eq!(
+        body["revenue_cents"], 113_400,
+        "revenue_cents sums all income accounts"
     );
 }
 

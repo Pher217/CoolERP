@@ -1,6 +1,6 @@
 # Security Policy
 
-OpenERP is **pre-1.0 and under active development.** This document is deliberately
+CoolERP is **pre-1.0 and under active development.** This document is deliberately
 honest about what is and isn't protected today, so no one deploys it on a wrong
 assumption. Accounting correctness is enforced at the database level and is strong;
 **network authentication is not wired yet.**
@@ -17,7 +17,7 @@ assumption. Accounting correctness is enforced at the database level and is stro
 | CORS | ⚠️ Permissive in dev. |
 
 **Wiring authentication (OAuth 2.1 PKCE, ADR-006) into `ol-api` and `ol-mcp` is the
-project's #1 open issue.** Until it ships, treat OpenERP as a single-tenant, trusted-
+project's #1 open issue.** Until it ships, treat CoolERP as a single-tenant, trusted-
 network / localhost tool.
 
 ## Safe deployment guidance (until auth lands)
@@ -29,11 +29,11 @@ network / localhost tool.
    the *application* must connect as a login user in the `ol_app` group so a compromised
    app process still cannot rewrite history:
    ```sql
-   CREATE ROLE openerp_app LOGIN PASSWORD '…';
-   GRANT ol_app TO openerp_app;   -- SELECT/INSERT everywhere, UPDATE only on state tables,
+   CREATE ROLE coolerp_app LOGIN PASSWORD '…';
+   GRANT ol_app TO coolerp_app;   -- SELECT/INSERT everywhere, UPDATE only on state tables,
                                   -- never UPDATE/DELETE/TRUNCATE on the ledger
    ```
-   Point the app's `DATABASE_URL` at `openerp_app`; keep the owner credentials for
+   Point the app's `DATABASE_URL` at `coolerp_app`; keep the owner credentials for
    migrations only. Verify the boundary any time with `make verify`.
 3. **Never commit secrets.** History is secret-scanned (`.gitleaks.toml`); keep it that way.
 

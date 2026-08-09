@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Core entities and double-entry invariants for OpenERP."
+description = "Core entities and double-entry invariants for CoolERP."
 
 [dependencies]
 serde.workspace = true

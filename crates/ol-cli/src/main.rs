@@ -1,4 +1,4 @@
-//! ol — OpenERP CLI. (AGPL-3.0)
+//! ol — CoolERP CLI. (AGPL-3.0)
 //!
 //! Subcommands: migrate, post, balance, serve (stub), replay (stub).
 //! Reads DATABASE_URL from the environment.
@@ -11,7 +11,7 @@ use sqlx::postgres::PgPoolOptions;
 use uuid::Uuid;
 
 #[derive(Parser)]
-#[command(name = "ol", about = "OpenERP CLI")]
+#[command(name = "ol", about = "CoolERP CLI")]
 struct Cli {
     #[command(subcommand)]
     command: Cmd,

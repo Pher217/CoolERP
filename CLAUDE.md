@@ -1,6 +1,6 @@
-# CLAUDE.md — OpenERP (repo)
+# CLAUDE.md — CoolERP (repo)
 
-Repo-specific guidance. Project design docs, decisions, lessons, and research live in the maintainer's Obsidian vault under `02 Projects/OpenERP`, not in this repo.
+Repo-specific guidance. Project design docs, decisions, lessons, and research live in the maintainer's Obsidian vault under `02 Projects/CoolERP`, not in this repo.
 
 ## Commands
 ```bash
@@ -11,7 +11,11 @@ sqlx migrate run                      # needs $DATABASE_URL
 cargo sqlx prepare --check --workspace
 cargo deny check
 ```
-Rust is not yet installed in the scaffold environment — install stable `rustup` first, `cargo build`, and reconcile dep versions (manifests are conservative but unverified).
+The `query!` macros are compile-time checked, so `cargo build` needs a live `$DATABASE_URL`
+(there is no committed `.sqlx` offline cache). `make demo` brings up Postgres, migrates, and seeds.
+
+Architecture decision records live in [`docs/adr/`](docs/adr/README.md) — the ADR-0XX citations
+throughout the code resolve there.
 
 ## Non-negotiable invariants
 - Money = integer cents (`BIGINT`/`i64`). No floats. (ADR-007)

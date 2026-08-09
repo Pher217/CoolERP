@@ -12,7 +12,7 @@
 --
 -- `ol_app` is that role. Deployments create a LOGIN user and `GRANT ol_app TO <user>`;
 -- the app's DATABASE_URL uses that user. Migrations continue to run as the schema
--- OWNER (a separate, privileged role), so DDL is unaffected. See ADR-009.
+-- OWNER (a separate, privileged role), so DDL is unaffected. See ADR-021.
 
 DO $$
 BEGIN

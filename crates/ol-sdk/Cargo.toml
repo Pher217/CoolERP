@@ -7,7 +7,7 @@ rust-version.workspace = true
 license = "MIT OR Apache-2.0"
 authors.workspace = true
 repository.workspace = true
-description = "Typed client SDK for the OpenERP MCP / REST API."
+description = "Typed client SDK for the CoolERP MCP / REST API."
 
 [dependencies]
 serde.workspace = true

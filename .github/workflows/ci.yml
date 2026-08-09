@@ -1,0 +1,114 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  rust:
+    name: Rust (fmt, clippy, test)
+    runs-on: ubuntu-latest
+
+    # The query! macros are compile-time checked against a live database and
+    # there is no .sqlx offline cache committed, so every Rust job needs
+    # Postgres up and migrated before `cargo build` runs.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: coolerp
+          POSTGRES_PASSWORD: coolerp
+          POSTGRES_DB: coolerp
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U coolerp -d coolerp"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://coolerp:coolerp@localhost:5432/coolerp
+      PGPASSWORD: coolerp
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Migrations are plain SQL, applied in filename order. Using psql rather
+      # than sqlx-cli keeps the job fast (no cargo install) -- the compile-time
+      # macros only need the schema to exist, not sqlx's migration bookkeeping.
+      # #[sqlx::test] still applies migrations itself into its own per-test DBs.
+      - name: Apply migrations
+        run: |
+          for f in migrations/*.sql; do
+            echo "── applying $f"
+            psql -h localhost -U coolerp -d coolerp -v ON_ERROR_STOP=1 -f "$f"
+          done
+
+      - name: cargo fmt
+        run: cargo fmt --all --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: cargo test
+        run: cargo test --all
+
+  deny:
+    name: cargo-deny (licenses, advisories, bans)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+
+  gitleaks:
+    name: gitleaks (secret scan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0        # full history -- the point is to scan all of it
+      - name: Run gitleaks
+        run: |
+          curl -fsSL -o gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v8.30.0/gitleaks_8.30.0_linux_x64.tar.gz
+          tar -xzf gitleaks.tar.gz
+          # 8.30 removed the `detect` subcommand; scanning a repo is `gitleaks git <repo>`.
+          ./gitleaks git . --config .gitleaks.toml --redact --exit-code 1
+
+  ui:
+    name: Web UI (lint, test, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/ol-ui
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/ol-ui/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test
+      - run: npm run build

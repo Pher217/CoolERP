@@ -1,4 +1,4 @@
-//! ol-domain — core entities and double-entry invariants for OpenERP.
+//! ol-domain — core entities and double-entry invariants for CoolERP.
 //!
 //! Money is represented as integer cents (`i64`). No floats. (ADR-007)
 //!

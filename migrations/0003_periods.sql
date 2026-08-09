@@ -1,4 +1,4 @@
--- OpenERP — fiscal periods + effective (economic) date + period-close lock.
+-- CoolERP — fiscal periods + effective (economic) date + period-close lock.
 -- Adds the Fowler "whenCharged" (effective_date) date distinct from the booked
 -- entry_date and the wall-clock posted_at, and makes posting into a CLOSED
 -- fiscal period impossible at the DATABASE level (the credibility surface).

@@ -1,4 +1,4 @@
--- OpenERP v0.1 — seed inventory master data.
+-- CoolERP v0.1 — seed inventory master data.
 -- Inserts one default location and four sample items.  Uses ON CONFLICT DO
 -- NOTHING so the migration can be safely re-applied and tests can run on a
 -- database that already contains this data.

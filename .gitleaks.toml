@@ -1,4 +1,4 @@
-# gitleaks configuration for OpenERP.
+# gitleaks configuration for CoolERP.
 # Full history was scanned clean on 2026-07-16 apart from the allowlisted class below.
 #
 # The codebase uses UUIDs pervasively as idempotency keys (see the posting engine and
@@ -7,7 +7,7 @@
 # actionable instead of noisy. Real credentials (AWS keys, PEM blocks, provider tokens)
 # are still caught by the default ruleset.
 
-title = "OpenERP gitleaks config"
+title = "CoolERP gitleaks config"
 
 [extend]
 useDefault = true

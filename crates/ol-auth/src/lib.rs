@@ -1,4 +1,4 @@
-//! `ol-auth` — pure crypto/token core for the OpenERP OAuth 2.1 Authorization Server.
+//! `ol-auth` — pure crypto/token core for the CoolERP OAuth 2.1 Authorization Server.
 //!
 //! # Security notice
 //!
