@@ -25,7 +25,7 @@ utoipa-axum = "0.2"
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "uuid", "chrono", "macros", "migrate", "json"] }
 sea-orm = { version = "1.1", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros"] }
 # MCP server (rmcp 1.7.x): stdio + Streamable HTTP
-rmcp = { version = "1", features = ["server", "macros", "transport-streamable-http-server"] }
+rmcp = { version = "2", features = ["server", "macros", "transport-streamable-http-server"] }
 # Serde + ids + errors + time + logging
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
