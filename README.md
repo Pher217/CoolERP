@@ -84,7 +84,7 @@ so the human view of a process can never drift from what the engine actually enf
 This is a deliberate contributor bargain, not a purity test:
 
 - 🦀 **Rust where it earns its place** — the posting engine, the invariant-enforcing core, the event store. Performance, memory safety, and compile-time correctness are non-negotiable *there*.
-- 🐍🟦 **Python & TypeScript where you live** — the MCP server speaks a language-agnostic protocol, the SDKs ship in **Python and TypeScript first**, and the web UI is React. Integrating, scripting, and extending CoolERP **never requires writing Rust.**
+- 🐍🟦 **Python & TypeScript where you live** — the MCP server speaks a language-agnostic protocol, the OpenAPI 3.1 spec is published at `/api-docs/openapi.json`, and the web UI is React. Integrating, scripting, and extending CoolERP **never requires writing Rust.** The Python and TypeScript SDKs are generated from that spec — **they are not built yet**, and they are the two flagship good-first-issues ([#60](https://github.com/Pher217/CoolERP/issues/60), [#59](https://github.com/Pher217/CoolERP/issues/59)).
 
 These architectural choices are recorded in [docs/adr/README.md](docs/adr/README.md).
 
@@ -103,7 +103,10 @@ Honest status — this is early, and we're building in the open:
 | `ol-api` — REST + OpenAPI | ✅ works |
 | `ol-mcp` — MCP server | ✅ works; authentication is designed but not wired — it runs unauthenticated in dev mode (see [SECURITY.md](SECURITY.md)) |
 | `apps/ol-ui` — React web app | ✅ works |
-| `ol-events` — event store + replay | 🚧 stub; the event store is append-only, replay is not finished |
+| `ol-engine` — process instances, transitions, posting rules | ✅ done |
+| `ol-auth` — EdDSA JWT, Argon2id, scopes | ⚠️ implemented and unit-tested, but **no crate depends on it** — the auth primitives exist, the flow does not ([#9](https://github.com/Pher217/CoolERP/issues/9)) |
+| `ol-sdk` — shared error envelope (Rust) | ✅ used by `ol-api`/`ol-mcp`; the Python/TS client SDKs do not exist yet ([#59](https://github.com/Pher217/CoolERP/issues/59), [#60](https://github.com/Pher217/CoolERP/issues/60)) |
+| `ol-events` — event store + replay | 🚧 stub; the event store is append-only, **replay is not implemented** ([#57](https://github.com/Pher217/CoolERP/issues/57)) |
 
 You can run the app locally today; the core is solid and the quickstart below will get you a ledger, API, and UI in minutes.
 
@@ -141,8 +144,11 @@ We're looking for **≥3 maintainers**, especially anyone with real double-entry
 
 ## Scope (v0.1)
 
-**Ships:** chart of accounts, journals & general ledger, AR/AP (customers, vendors, bills, payments), basic inventory (items, stock moves, valuation), invoicing, audit trails.
-**Deliberately out:** manufacturing/MRP, payroll, HR, CRM, multi-entity consolidation, VAT/e-invoicing regimes, multi-currency. We ship the 20% that covers 80% — correct — before we ship breadth.
+**Working end-to-end:** journals & general ledger, the posting engine, business processes as YAML state machines, inventory receipts, audit trails, and the trial-balance / AR-aging / subledger-reconciliation reports. The chart of accounts is seeded and read-only (no CRUD endpoint yet).
+
+**Schema-complete, no direct API surface yet:** AR/AP and invoicing. The `parties`, `invoices`, `invoice_lines`, `bills`, `bill_lines` and `payments` tables exist and are exercised through the `customer_invoice`, `order_to_cash` and `purchase_to_pay` processes — but there is **no REST endpoint and no MCP tool** that creates an invoice, bill, payment or party directly, and inventory valuation is recorded (`unit_cost`) but never computed. If you want an ERP resource API, that gap is the work.
+
+**Deliberately out:** manufacturing/MRP, payroll, HR, CRM, multi-entity consolidation, VAT/e-invoicing regimes. Per-currency balancing *is* implemented (`migrations/0004_currency.sql`); FX rates and settlement are not ([#63](https://github.com/Pher217/CoolERP/issues/63)). We ship the 20% that covers 80% — correct — before we ship breadth.
 
 ## Workspace layout
 
@@ -150,12 +156,14 @@ We're looking for **≥3 maintainers**, especially anyone with real double-entry
 crates/
   ol-domain/    double-entry invariants (AGPL-3.0)
   ol-ledger/    posting engine, SQLx hot path, idempotency (AGPL-3.0)
-  ol-events/    event store + projections/replay (AGPL-3.0)
+  ol-events/    event store + projections/replay — REPLAY IS A STUB (AGPL-3.0)
   ol-process/   workflow YAML → state machine + Mermaid (AGPL-3.0)
+  ol-engine/    process engine — instances, transitions, posting rules (AGPL-3.0)
   ol-api/       Axum REST + OpenAPI (AGPL-3.0)
-  ol-mcp/       MCP server, OAuth 2.1 PKCE, scoped tokens (AGPL-3.0)
-  ol-sdk/       typed client SDK — Rust; Python/TS SDKs generated from OpenAPI (MIT OR Apache-2.0)
-  ol-cli/       `ol serve|migrate|replay|post` (AGPL-3.0)
+  ol-mcp/       MCP server — OAuth 2.1 PKCE designed (ADR-006), not wired (AGPL-3.0)
+  ol-auth/      EdDSA JWT, Argon2id, scopes — BUILT AND TESTED, NOTHING DEPENDS ON IT YET (AGPL-3.0)
+  ol-sdk/       shared error envelope + typed structs — Rust only today (MIT OR Apache-2.0)
+  ol-cli/       `ol migrate|post|balance` (`serve`/`replay` not implemented) (AGPL-3.0)
 apps/ol-ui/     React + Vite web app — observe & operate (AGPL-3.0)
 migrations/     SQL schema + double-entry triggers
 processes/      business-process source-of-truth (YAML)
@@ -163,7 +171,7 @@ processes/      business-process source-of-truth (YAML)
 
 ## Stack
 
-Rust · Axum 0.8 / Tokio · SQLx 0.8 (hot ledger path) + SeaORM 1.1.x (CRUD) · `rmcp` 1.7 MCP server · PostgreSQL · React + Vite web UI · OpenAPI 3.1 (utoipa) → Python/TS clients.
+Rust · Axum 0.8 / Tokio · SQLx 0.8 (hot ledger path) + SeaORM 1.1.x (CRUD) · `rmcp` MCP server · PostgreSQL · React + Vite web UI · OpenAPI 3.1 (utoipa); Python/TS clients planned.
 
 ## Kin & prior art
 
