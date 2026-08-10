@@ -777,7 +777,7 @@ fn engine_error_response(e: EngineError) -> (StatusCode, Json<ErrorEnvelope>) {
             StatusCode::UNPROCESSABLE_ENTITY,
             ErrorCode::Validation,
             format!(
-                "posting step '{capability}' needs amounts in integer cents, keyed exactly \
+                "posting step '{capability}' needs amounts in integer cents, and must include the keys \
                  [{required_amount_keys}]: key 'amount' = the debit total for role '{debit_role}'\
                  {multi_credit_note}. Missing: [{missing}].",
                 multi_credit_note = if required_amount_keys.len() > 1 {

@@ -29,13 +29,14 @@ use uuid::Uuid;
 // Public types
 // ---------------------------------------------------------------------------
 
-/// Posting amounts that an AI agent must supply when calling a posting transition.
+/// What a caller must supply to drive a posting transition, and what that
+/// posting will do.
 ///
-/// `debit_role` is the key `"amount"` (the debit total).
-/// `credit_roles` are the additional per-credit-role keys.
-/// For a single-credit transition only `"amount"` is required.
-/// For multi-credit transitions both `"amount"` and each entry in `credit_roles`
-/// must be supplied and must sum correctly.
+/// The two halves are deliberately separate fields (ADR-025): `credit_roles`
+/// *describes* the posting, `required_amount_keys` *prescribes* the call.
+/// Supply `required_amount_keys` — `"amount"` alone for a single-credit rule,
+/// or `"amount"` plus one key per credited role, summing to it, for a
+/// multi-credit rule.  Keys outside that set are ignored.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PostingRequirement {
     /// The account role that is debited.  The caller supplies its total as
@@ -129,7 +130,7 @@ pub enum EngineError {
     /// the call in one go without trial-and-error.
     #[error(
         "posting step '{capability}' needs amounts in integer cents, \
-         keyed exactly [{required_amount_keys}]: \
+         and must include the keys [{required_amount_keys}]: \
          key 'amount' = the debit total for role '{debit_role}'\
          {multi_credit_note}. \
          Missing: [{missing}].",
@@ -524,8 +525,17 @@ pub async fn advance_instance(
             let code = code.ok_or_else(|| EngineError::UnknownRole(role.clone()))?;
 
             let role_amount = if credit_roles.len() == 1 {
-                // Single credit role: entire debit goes here.
-                *input.amounts.get(role.as_str()).unwrap_or(&debit_total)
+                // Single credit role: the entire debit goes here, unconditionally.
+                //
+                // This used to read a same-named key from `amounts` when one
+                // happened to be present, falling back to the debit total. That
+                // contradicted the advertised contract (ADR-025), which says a
+                // single-credit rule needs only "amount": a caller who also sent
+                // `{"inventory": 9000}` alongside `{"amount": 10000}` got a
+                // confusing Unbalanced error instead of the posting they asked
+                // for. Any value other than the debit total is unbalanced by
+                // construction here, so honouring the contract loses nothing.
+                debit_total
             } else {
                 *input.amounts.get(role.as_str()).expect("checked above")
             };

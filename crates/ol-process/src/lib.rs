@@ -79,6 +79,13 @@ pub enum ProcessError {
 
     #[error("transition references unknown state '{state}'")]
     UnknownState { state: String },
+
+    /// A posting rule must credit at least one account role.  `credit: []` would
+    /// produce a debit with no matching credit, which the ledger would reject at
+    /// commit anyway — but the engine would first advertise a posting requirement
+    /// naming no credited account, so callers are told nothing useful (ADR-025).
+    #[error("transition '{capability}' has a posting rule that credits no account role")]
+    PostingRuleWithoutCredit { capability: String },
 }
 
 impl Process {
@@ -143,6 +150,17 @@ impl Process {
             if !states.contains(transition.to.as_str()) {
                 return Err(ProcessError::UnknownState {
                     state: transition.to.clone(),
+                });
+            }
+
+            if let Some(rule) = &transition.posting_rule
+                && matches!(&rule.credit, CreditTarget::Multiple(rs) if rs.is_empty())
+            {
+                return Err(ProcessError::PostingRuleWithoutCredit {
+                    capability: transition
+                        .capability
+                        .clone()
+                        .unwrap_or_else(|| format!("{} -> {}", transition.from, transition.to)),
                 });
             }
         }
@@ -313,5 +331,33 @@ steps:
             error,
             ProcessError::UnknownState { state } if state == "posted"
         ));
+    }
+
+    /// GIVEN a process YAML whose posting rule credits an empty list of roles
+    /// WHEN it is parsed
+    /// THEN validation rejects it, naming the offending capability
+    ///
+    /// ADR-025 made the illegal-transition hint print `credit_roles` verbatim.
+    /// An empty credit list would render "credit " with nothing after it. The
+    /// old code masked this by falling back to the debit role — i.e. by printing
+    /// something wrong instead of something blank. Reject it at parse time.
+    #[test]
+    fn posting_rule_crediting_nothing_is_rejected() {
+        let yaml = r#"
+process: broken
+states: [draft, posted]
+transitions:
+  - from: draft
+    to: posted
+    capability: post_it
+    posting_rule:
+      debit: accounts_receivable
+      credit: []
+"#;
+        let error = Process::from_yaml(yaml).expect_err("must reject a rule crediting nothing");
+        assert!(
+            matches!(&error, ProcessError::PostingRuleWithoutCredit { capability } if capability == "post_it"),
+            "expected PostingRuleWithoutCredit for 'post_it', got: {error:?}"
+        );
     }
 }

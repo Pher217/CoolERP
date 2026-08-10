@@ -1022,6 +1022,62 @@ fn test_available_transitions_posting_transition_exposes_posting_requirement() {
     );
 }
 
+/// GIVEN an order_to_cash instance at "fulfillment" (single-credit `deliver`)
+/// WHEN the caller sends 'amount' AND a redundant key named after the credited
+///      role, carrying a different value
+/// THEN the credited account still receives the full debit total, and the call
+///      succeeds rather than failing as unbalanced
+///
+/// ADR-025 advertises `required_amount_keys == ["amount"]` for a single-credit
+/// rule. The splitter used to read a same-named key when one was present, so a
+/// caller who sent the role key anyway got a confusing Unbalanced error for a
+/// key the contract told them not to send. Raised by independent review of the
+/// ADR-025 change.
+#[sqlx::test(migrations = "../../migrations")]
+async fn test_single_credit_ignores_a_redundant_role_key(pool: PgPool) {
+    unsafe { std::env::set_var("PROCESSES_DIR", PROCESSES_DIR) };
+
+    let instance = start_instance(&pool, "order_to_cash", None, serde_json::json!({}))
+        .await
+        .expect("start_instance");
+    let id = instance.id;
+
+    advance_no_posting(&pool, id, "confirm_order").await;
+    advance_no_posting(&pool, id, "run_credit_check").await;
+    advance_no_posting(&pool, id, "release_credit_hold").await;
+    advance_no_posting(&pool, id, "allocate_inventory").await;
+
+    let debit_total: i64 = 50_000;
+    let mut amounts = HashMap::new();
+    amounts.insert("amount".to_string(), debit_total);
+    // Not in required_amount_keys, and deliberately not equal to the total.
+    amounts.insert("inventory".to_string(), 9_000);
+
+    let inst = advance_instance(
+        &pool,
+        id,
+        "deliver",
+        "test_actor",
+        AdvanceInput {
+            amounts,
+            context_patch: serde_json::json!({}),
+            entry_date: today(),
+        },
+    )
+    .await
+    .expect("a redundant role key must not break a single-credit posting");
+
+    assert_eq!(inst.current_state, "shipped");
+
+    let inv_bal = account_balance(&pool, "1200")
+        .await
+        .expect("inventory balance");
+    assert_eq!(
+        inv_bal.credits, debit_total,
+        "the single credited account takes the whole debit total, not the redundant key's value"
+    );
+}
+
 /// GIVEN an order_to_cash instance at "fulfillment", whose only transition
 ///       (`deliver`) debits cost_of_goods_sold and credits inventory
 /// WHEN an illegal capability is attempted from that state
