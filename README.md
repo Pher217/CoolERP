@@ -84,7 +84,7 @@ so the human view of a process can never drift from what the engine actually enf
 This is a deliberate contributor bargain, not a purity test:
 
 - 🦀 **Rust where it earns its place** — the posting engine, the invariant-enforcing core, the event store. Performance, memory safety, and compile-time correctness are non-negotiable *there*.
-- 🐍🟦 **Python & TypeScript where you live** — the MCP server speaks a language-agnostic protocol, the OpenAPI 3.1 spec is published at `/api-docs/openapi.json`, and the web UI is React. Integrating, scripting, and extending CoolERP **never requires writing Rust.** The Python and TypeScript SDKs are generated from that spec — **they are not built yet**, and they are the two flagship good-first-issues ([#60](https://github.com/Pher217/CoolERP/issues/60), [#59](https://github.com/Pher217/CoolERP/issues/59)).
+- 🐍🟦 **Python & TypeScript where you live** — the MCP server speaks a language-agnostic protocol, the OpenAPI 3.1 spec is published at `/api-docs/openapi.json`, and the web UI is React. Integrating with CoolERP, scripting it, and adding new business processes (plain YAML in [`processes/`](processes/)) **never requires writing Rust** — adding a new server-side capability still does. The Python and TypeScript SDKs are meant to be generated from that spec; **neither exists yet**, and they are the two flagship good-first-issues ([#60](https://github.com/Pher217/CoolERP/issues/60), [#59](https://github.com/Pher217/CoolERP/issues/59)).
 
 These architectural choices are recorded in [docs/adr/README.md](docs/adr/README.md).
 
@@ -101,12 +101,12 @@ Honest status — this is early, and we're building in the open:
 | `ol-ledger` — posting engine (`post_journal_entry`, balances) | ✅ done, concurrency- & adversarially-reviewed |
 | `ol-process` — workflow engine (`processes/*.yaml` → state machine + Mermaid) | ✅ done |
 | `ol-api` — REST + OpenAPI | ✅ works |
-| `ol-mcp` — MCP server | ✅ works; authentication is designed but not wired — it runs unauthenticated in dev mode (see [SECURITY.md](SECURITY.md)) |
+| `ol-mcp` — MCP server | ✅ works; authentication is designed but not wired — it runs unauthenticated, and there is no authenticated mode to switch on (see [SECURITY.md](SECURITY.md)) |
 | `apps/ol-ui` — React web app | ✅ works |
 | `ol-engine` — process instances, transitions, posting rules | ✅ done |
 | `ol-auth` — EdDSA JWT, Argon2id, scopes | ⚠️ implemented and unit-tested, but **no crate depends on it** — the auth primitives exist, the flow does not ([#9](https://github.com/Pher217/CoolERP/issues/9)) |
 | `ol-sdk` — shared error envelope (Rust) | ✅ used by `ol-api`/`ol-mcp`; the Python/TS client SDKs do not exist yet ([#59](https://github.com/Pher217/CoolERP/issues/59), [#60](https://github.com/Pher217/CoolERP/issues/60)) |
-| `ol-events` — event store + replay | 🚧 stub; the event store is append-only, **replay is not implemented** ([#57](https://github.com/Pher217/CoolERP/issues/57)) |
+| `ol-events` — event store + replay | 🚧 **empty stub, nothing depends on it.** The append-only `events` table is real, but it is written directly by `ol-ledger`; replay is not implemented and the table has no read endpoint ([#57](https://github.com/Pher217/CoolERP/issues/57)) |
 
 You can run the app locally today; the core is solid and the quickstart below will get you a ledger, API, and UI in minutes.
 
@@ -144,9 +144,11 @@ We're looking for **≥3 maintainers**, especially anyone with real double-entry
 
 ## Scope (v0.1)
 
-**Working end-to-end:** journals & general ledger, the posting engine, business processes as YAML state machines, inventory receipts, audit trails, and the trial-balance / AR-aging / subledger-reconciliation reports. The chart of accounts is seeded and read-only (no CRUD endpoint yet).
+**Working end-to-end:** journals & general ledger, the posting engine, account balances (including per-currency), inventory receipts and stock queries, the trial-balance / AR-aging / subledger-reconciliation reports, and the full process surface — list processes, start an instance, list instances, read one, advance it — over both REST and MCP.
 
-**Schema-complete, no direct API surface yet:** AR/AP and invoicing. The `parties`, `invoices`, `invoice_lines`, `bills`, `bill_lines` and `payments` tables exist and are exercised through the `customer_invoice`, `order_to_cash` and `purchase_to_pay` processes — but there is **no REST endpoint and no MCP tool** that creates an invoice, bill, payment or party directly, and inventory valuation is recorded (`unit_cost`) but never computed. If you want an ERP resource API, that gap is the work.
+Audit trails are **partly readable**: every advance appends an immutable `process_steps_log` row and those come back on `GET /instances/{id}`, but the ledger's append-only `events` table has no read endpoint yet. The chart of accounts is seeded and read-only (no CRUD endpoint).
+
+**Tables only, no direct API surface:** AR/AP and invoicing. The `parties`, `invoices`, `invoice_lines`, `bills`, `bill_lines` and `payments` tables exist and are exercised through the `customer_invoice`, `order_to_cash` and `purchase_to_pay` processes — but there is **no REST endpoint and no MCP tool** that creates an invoice, bill, payment or party directly, and inventory valuation is recorded (`unit_cost`) but never computed. If you want an ERP resource API, that gap is the work.
 
 **Deliberately out:** manufacturing/MRP, payroll, HR, CRM, multi-entity consolidation, VAT/e-invoicing regimes. Per-currency balancing *is* implemented (`migrations/0004_currency.sql`); FX rates and settlement are not ([#63](https://github.com/Pher217/CoolERP/issues/63)). We ship the 20% that covers 80% — correct — before we ship breadth.
 
