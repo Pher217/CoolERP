@@ -658,16 +658,17 @@ impl From<ol_engine::StepLog> for StepLogResponse {
 
 /// Posting amounts required by an available transition.
 ///
-/// The caller must include key `"amount"` (the debit total) in the `amounts` map.
-/// For multi-credit transitions, each entry in `credit_roles` must also appear as
-/// a separate key in `amounts`, and their values must sum to `"amount"`.
+/// `required_amount_keys` lists exactly the keys the caller must supply in the
+/// `amounts` map. The `credit_roles` field describes every account role this
+/// transition credits and is always populated.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct PostingRequirementResponse {
     /// The debit role name (for reference; the caller always uses the key `"amount"`).
     pub debit_role: String,
-    /// Additional per-credit-role keys required in `amounts` (multi-credit only).
-    /// Empty for single-credit transitions.
+    /// Every account role this transition credits, always populated.
     pub credit_roles: Vec<String>,
+    /// Exactly the keys the caller must supply in `amounts`.
+    pub required_amount_keys: Vec<String>,
 }
 
 /// One legal next move from the current state of a process instance.
@@ -770,18 +771,21 @@ fn engine_error_response(e: EngineError) -> (StatusCode, Json<ErrorEnvelope>) {
         EngineError::PostingAmountsRequired {
             capability,
             debit_role,
-            credit_roles,
+            required_amount_keys,
             missing,
         } => err_response(
             StatusCode::UNPROCESSABLE_ENTITY,
             ErrorCode::Validation,
             format!(
-                "posting step '{capability}' needs amounts in integer cents: \
-                 key 'amount' = the debit total for role '{debit_role}', \
-                 plus one key per credit role [{credit_roles}]; \
-                 all credit amounts must sum to 'amount'. \
-                 Missing: [{missing}].",
-                credit_roles = credit_roles.join(", "),
+                "posting step '{capability}' needs amounts in integer cents, and must include the keys \
+                 [{required_amount_keys}]: key 'amount' = the debit total for role '{debit_role}'\
+                 {multi_credit_note}. Missing: [{missing}].",
+                multi_credit_note = if required_amount_keys.len() > 1 {
+                    ", and one key per credited role, all summing to 'amount'"
+                } else {
+                    " (the single credited account takes the whole total)"
+                },
+                required_amount_keys = required_amount_keys.join(", "),
                 missing = missing.join(", ")
             ),
         ),
@@ -919,6 +923,7 @@ pub async fn get_instance(State(pool): State<PgPool>, Path(id): Path<i64>) -> im
                         posting: at.posting.map(|p| PostingRequirementResponse {
                             debit_role: p.debit_role,
                             credit_roles: p.credit_roles,
+                            required_amount_keys: p.required_amount_keys,
                         }),
                     })
                     .collect(),

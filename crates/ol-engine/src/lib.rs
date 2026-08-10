@@ -19,7 +19,7 @@ use std::{collections::HashMap, env, path::PathBuf};
 use chrono::NaiveDate;
 use ol_domain::Line;
 use ol_ledger::{PostRequest, post_journal_entry};
-use ol_process::{CreditTarget, Process};
+use ol_process::{CreditTarget, PostingRule, Process};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
@@ -29,19 +29,28 @@ use uuid::Uuid;
 // Public types
 // ---------------------------------------------------------------------------
 
-/// Posting amounts that an AI agent must supply when calling a posting transition.
+/// What a caller must supply to drive a posting transition, and what that
+/// posting will do.
 ///
-/// `debit_role` is the key `"amount"` (the debit total).
-/// `credit_roles` are the additional per-credit-role keys.
-/// For a single-credit transition only `"amount"` is required.
-/// For multi-credit transitions both `"amount"` and each entry in `credit_roles`
-/// must be supplied and must sum correctly.
+/// The two halves are deliberately separate fields (ADR-025): `credit_roles`
+/// *describes* the posting, `required_amount_keys` *prescribes* the call.
+/// Supply `required_amount_keys` — `"amount"` alone for a single-credit rule,
+/// or `"amount"` plus one key per credited role, summing to it, for a
+/// multi-credit rule.  Keys outside that set are ignored.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PostingRequirement {
-    /// The debit role name (the caller supplies this as key `"amount"` in amounts).
+    /// The account role that is debited.  The caller supplies its total as
+    /// key `"amount"` in `amounts`.
     pub debit_role: String,
-    /// Credit role names that must also appear in amounts (multi-credit transitions only).
+    /// Every account role this transition credits — always populated, whether
+    /// the rule credits one account or several.  Descriptive: it tells the
+    /// caller what the posting *does*, not what it must send (ADR-025).
     pub credit_roles: Vec<String>,
+    /// Exactly the keys the caller must supply in `amounts`.  Always contains
+    /// `"amount"`; contains the credit role names only when the rule credits
+    /// more than one account, because a single credit takes the whole debit
+    /// total and needs no key of its own (ADR-025).
+    pub required_amount_keys: Vec<String>,
 }
 
 /// One legal next move from the current state of a process instance.
@@ -120,18 +129,25 @@ pub enum EngineError {
     /// required keys.  `missing` lists every absent key so the caller can fix
     /// the call in one go without trial-and-error.
     #[error(
-        "posting step '{capability}' needs amounts in integer cents: \
-         key 'amount' = the debit total for role '{debit_role}', \
-         plus one key per credit role [{credit_roles}]; \
-         all credit amounts must sum to 'amount'. \
+        "posting step '{capability}' needs amounts in integer cents, \
+         and must include the keys [{required_amount_keys}]: \
+         key 'amount' = the debit total for role '{debit_role}'\
+         {multi_credit_note}. \
          Missing: [{missing}].",
-        credit_roles = credit_roles.join(", "),
+        required_amount_keys = required_amount_keys.join(", "),
+        multi_credit_note = if required_amount_keys.len() > 1 {
+            ", and one key per credited role, all summing to 'amount'"
+        } else {
+            " (the single credited account takes the whole total)"
+        },
         missing = missing.join(", ")
     )]
     PostingAmountsRequired {
         capability: String,
         debit_role: String,
-        credit_roles: Vec<String>,
+        /// Exactly the keys the caller must supply — NOT the credited roles.
+        /// A single-credit rule requires only `"amount"` (ADR-025).
+        required_amount_keys: Vec<String>,
         missing: Vec<String>,
     },
 
@@ -237,6 +253,26 @@ fn row_to_instance(
 /// Each entry in the returned vec describes one legal next move: the capability
 /// name to pass, the target state, and (for posting transitions) the amounts
 /// the caller must supply.
+/// The account roles a posting rule credits, single or multiple alike.
+fn credit_roles_of(rule: &PostingRule) -> Vec<String> {
+    match &rule.credit {
+        CreditTarget::Single(r) => vec![r.clone()],
+        CreditTarget::Multiple(rs) => rs.clone(),
+    }
+}
+
+/// The `amounts` keys a caller must supply for a rule crediting `credit_roles`.
+///
+/// A single credit takes the entire debit total, so `"amount"` alone suffices.
+/// Several credits must each be named, and they must sum to `"amount"`.
+fn required_amount_keys(credit_roles: &[String]) -> Vec<String> {
+    let mut keys = vec!["amount".to_string()];
+    if credit_roles.len() > 1 {
+        keys.extend(credit_roles.iter().cloned());
+    }
+    keys
+}
+
 pub fn available_transitions(proc: &Process, state: &str) -> Vec<AvailableTransition> {
     proc.transitions
         .iter()
@@ -246,11 +282,9 @@ pub fn available_transitions(proc: &Process, state: &str) -> Vec<AvailableTransi
             let capability = t.capability.as_ref()?.clone();
 
             let posting = t.posting_rule.as_ref().map(|rule| {
-                let credit_roles = match &rule.credit {
-                    CreditTarget::Single(_) => vec![],
-                    CreditTarget::Multiple(rs) => rs.clone(),
-                };
+                let credit_roles = credit_roles_of(rule);
                 PostingRequirement {
+                    required_amount_keys: required_amount_keys(&credit_roles),
                     debit_role: rule.debit.clone(),
                     credit_roles,
                 }
@@ -276,14 +310,12 @@ fn available_transition_hints(proc: &Process, state: &str) -> Vec<String> {
         .into_iter()
         .map(|at| {
             if let Some(p) = &at.posting {
-                let credits = if p.credit_roles.is_empty() {
-                    p.debit_role.clone() // single-credit: credit role = same name as debit role context
-                } else {
-                    p.credit_roles.join(", ")
-                };
                 format!(
                     "{} -> {} (posts: debit {}, credit {})",
-                    at.capability, at.to_state, p.debit_role, credits
+                    at.capability,
+                    at.to_state,
+                    p.debit_role,
+                    p.credit_roles.join(", ")
                 )
             } else {
                 format!("{} -> {}", at.capability, at.to_state)
@@ -451,10 +483,7 @@ pub async fn advance_instance(
 
         // Resolve credit role(s) to account codes (before reading "amount" so we
         // can build a complete missing-key list in one shot if needed).
-        let credit_roles: Vec<String> = match &rule.credit {
-            CreditTarget::Single(r) => vec![r.clone()],
-            CreditTarget::Multiple(rs) => rs.clone(),
-        };
+        let credit_roles: Vec<String> = credit_roles_of(rule);
 
         // Compute the set of missing required amount keys up front so the error
         // message names ALL of them rather than just the first one encountered.
@@ -476,7 +505,7 @@ pub async fn advance_instance(
                 return Err(EngineError::PostingAmountsRequired {
                     capability: capability.to_string(),
                     debit_role: rule.debit.clone(),
-                    credit_roles: credit_roles.clone(),
+                    required_amount_keys: required_amount_keys(&credit_roles),
                     missing,
                 });
             }
@@ -496,8 +525,17 @@ pub async fn advance_instance(
             let code = code.ok_or_else(|| EngineError::UnknownRole(role.clone()))?;
 
             let role_amount = if credit_roles.len() == 1 {
-                // Single credit role: entire debit goes here.
-                *input.amounts.get(role.as_str()).unwrap_or(&debit_total)
+                // Single credit role: the entire debit goes here, unconditionally.
+                //
+                // This used to read a same-named key from `amounts` when one
+                // happened to be present, falling back to the debit total. That
+                // contradicted the advertised contract (ADR-025), which says a
+                // single-credit rule needs only "amount": a caller who also sent
+                // `{"inventory": 9000}` alongside `{"amount": 10000}` got a
+                // confusing Unbalanced error instead of the posting they asked
+                // for. Any value other than the debit total is unbalanced by
+                // construction here, so honouring the contract loses nothing.
+                debit_total
             } else {
                 *input.amounts.get(role.as_str()).expect("checked above")
             };
