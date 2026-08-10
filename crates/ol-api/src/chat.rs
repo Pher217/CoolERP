@@ -332,6 +332,7 @@ pub async fn dispatch_tool(
                         "posting": at.posting.map(|p| serde_json::json!({
                             "debit_role": p.debit_role,
                             "credit_roles": p.credit_roles,
+                            "required_amount_keys": p.required_amount_keys,
                         })),
                     })
                 })
@@ -552,11 +553,14 @@ fn tools() -> serde_json::Value {
                                 Pick a capability from the `available` list returned by get_process_instance \
                                 and call this tool with that exact capability name. \
                                 For transitions with a posting requirement (`available[n].posting != null`), \
-                                supply `amounts` as a map: key 'amount' = the debit total in integer cents, \
-                                plus one key per entry in `posting.credit_roles` \
-                                (e.g. {\"amount\": 10000} for a single-credit step, or \
+                                supply `amounts` as a map keyed by EXACTLY the entries in \
+                                `posting.required_amount_keys` — 'amount' is always the debit total in \
+                                integer cents (e.g. {\"amount\": 10000} for a single-credit step, whose \
+                                one credited account takes the whole total, or \
                                 {\"amount\": 11000, \"sales_revenue\": 10000, \"tax_payable\": 1000} \
-                                for a multi-credit step). \
+                                for a multi-credit step, where the credit values must sum to 'amount'). \
+                                `posting.credit_roles` is descriptive — it names the accounts that get \
+                                credited, and is NOT the list of keys to send. \
                                 The ledger enforces double-entry balance — only legal transitions are accepted. \
                                 On error, read the message: it lists the available capabilities.",
                 "parameters": {
@@ -647,8 +651,10 @@ Use start_process to create an instance. To step through a process: \
    for the current state, with posting requirements when amounts are needed. \
 2. Pick one capability from `available` and call advance_process with that EXACT capability name. \
    NEVER guess capability names — always read them from `available`. \
-3. For a posting step (`available[n].posting != null`), supply `amounts` with key 'amount' = the \
-   debit total, plus one key per entry in `posting.credit_roles` (all must sum to 'amount'). \
+3. For a posting step (`available[n].posting != null`), supply `amounts` keyed by exactly the \
+   entries in `posting.required_amount_keys`: 'amount' = the debit total, plus one key per credited \
+   role when there is more than one (those must sum to 'amount'). `posting.credit_roles` names the \
+   accounts being credited — it is descriptive, not the list of keys to send. \
 If advance_process returns an error, read it — it names the available capabilities from the \
 current state. NEVER tell the user a step succeeded unless the tool returned success. \
 Use list_process_instances and get_process_instance to inspect running or completed instances. \

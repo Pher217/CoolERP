@@ -758,7 +758,7 @@ async fn test_post_invoice_missing_credit_amounts_returns_posting_amounts_requir
         Err(EngineError::PostingAmountsRequired {
             capability,
             missing,
-            credit_roles,
+            required_amount_keys,
             ..
         }) => {
             assert_eq!(capability, "post_invoice");
@@ -780,9 +780,18 @@ async fn test_post_invoice_missing_credit_amounts_returns_posting_amounts_requir
                 msg.contains("tax_payable"),
                 "error message must name 'tax_payable': {msg}"
             );
-            // credit_roles should list both expected roles.
-            assert!(credit_roles.contains(&"sales_revenue".to_string()));
-            assert!(credit_roles.contains(&"tax_payable".to_string()));
+            // ADR-025: the error carries the KEY contract, not the credited
+            // roles. post_invoice credits two accounts, so all three keys are
+            // required -- "amount" plus one per credited role.
+            assert_eq!(
+                required_amount_keys,
+                &vec![
+                    "amount".to_string(),
+                    "sales_revenue".to_string(),
+                    "tax_payable".to_string()
+                ],
+                "multi-credit rule requires 'amount' plus one key per credited role, got: {required_amount_keys:?}"
+            );
         }
         other => panic!("expected PostingAmountsRequired, got: {other:?}"),
     }
@@ -993,12 +1002,76 @@ fn test_available_transitions_posting_transition_exposes_posting_requirement() {
         .as_ref()
         .expect("deliver must have a posting requirement");
     assert_eq!(posting.debit_role, "cost_of_goods_sold");
-    // Single credit: credit_roles is empty (only "amount" key needed)
-    assert!(
-        posting.credit_roles.is_empty(),
-        "single-credit posting has no extra credit roles, got: {:?}",
+    // ADR-025: credit_roles is DESCRIPTIVE and always populated -- it names the
+    // account this transition credits, single or multi. It previously returned
+    // [] for a single credit because it meant "extra amounts keys", which is
+    // what made the illegal-transition hint print the debit role twice (#78).
+    assert_eq!(
+        posting.credit_roles,
+        vec!["inventory".to_string()],
+        "single-credit posting still names the account it credits, got: {:?}",
         posting.credit_roles
     );
+    // The caller contract now lives in its own field: a single credit takes the
+    // whole debit total, so "amount" is the only key required.
+    assert_eq!(
+        posting.required_amount_keys,
+        vec!["amount".to_string()],
+        "a single-credit rule requires only the 'amount' key, got: {:?}",
+        posting.required_amount_keys
+    );
+}
+
+/// GIVEN an order_to_cash instance at "fulfillment", whose only transition
+///       (`deliver`) debits cost_of_goods_sold and credits inventory
+/// WHEN an illegal capability is attempted from that state
+/// THEN the hint names inventory as the credited account -- not the debit role
+///
+/// Regression pin for #78: the hint printed "credit cost_of_goods_sold" because
+/// available_transitions returned no credit role for a single-credit rule and
+/// the formatter fell back to the debit role. Exact-string assertion, because
+/// the defect was a plausible-looking wrong value, not a missing one.
+#[sqlx::test(migrations = "../../migrations")]
+async fn test_illegal_transition_hint_names_the_credited_account(pool: PgPool) {
+    unsafe { std::env::set_var("PROCESSES_DIR", PROCESSES_DIR) };
+
+    let instance = start_instance(&pool, "order_to_cash", None, serde_json::json!({}))
+        .await
+        .expect("start_instance");
+    let id = instance.id;
+
+    advance_no_posting(&pool, id, "confirm_order").await;
+    advance_no_posting(&pool, id, "run_credit_check").await;
+    advance_no_posting(&pool, id, "release_credit_hold").await;
+    let inst = advance_no_posting(&pool, id, "allocate_inventory").await;
+    assert_eq!(inst.current_state, "fulfillment");
+
+    let result = advance_instance(
+        &pool,
+        id,
+        "not_a_capability",
+        "test_actor",
+        AdvanceInput {
+            amounts: HashMap::new(),
+            context_patch: serde_json::json!({}),
+            entry_date: today(),
+        },
+    )
+    .await;
+
+    match &result {
+        Err(EngineError::IllegalTransition { available, .. }) => {
+            assert_eq!(
+                available,
+                &vec![
+                    "deliver -> shipped (posts: debit cost_of_goods_sold, credit inventory)"
+                        .to_string()
+                ],
+                "the hint must name inventory as the credit account, got: {available:?}"
+            );
+        }
+        other => panic!("expected IllegalTransition, got: {other:?}"),
+    }
 }
 
 // ---------------------------------------------------------------------------

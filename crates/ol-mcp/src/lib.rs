@@ -98,9 +98,9 @@ pub struct AdvanceProcessParams {
     pub instance_id: i64,
     /// Capability (transition label) to execute, e.g. "confirm_order".
     pub capability: String,
-    /// Integer-cents amounts for posting steps. Include key 'amount' = the debit total,
-    /// and for a multi-credit posting one key per credit account role
-    /// (e.g. sales_revenue, tax_payable) whose values sum to 'amount'.
+    /// Integer-cents amounts for posting steps. Include exactly the keys listed in
+    /// `posting.required_amount_keys` (one key per credited role when there is more
+    /// than one credit role, plus the key 'amount' = the debit total).
     /// Non-posting steps need no amounts.
     #[serde(default)]
     pub amounts: HashMap<String, i64>,
@@ -210,14 +210,17 @@ pub struct StepLogResult {
 
 /// Posting amounts required by an available transition.
 ///
-/// Supply key `"amount"` (debit total) in the `amounts` map.  For multi-credit
-/// transitions, also supply one key per entry in `credit_roles`.
+/// `required_amount_keys` lists exactly the keys the caller must supply in the
+/// `amounts` map. The `credit_roles` field describes every account role this
+/// transition credits and is always populated.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct PostingRequirementResult {
     /// The debit role name (informational; the caller uses key `"amount"`).
     pub debit_role: String,
-    /// Additional per-credit-role keys required in `amounts` (multi-credit only).
+    /// Every account role this transition credits, always populated.
     pub credit_roles: Vec<String>,
+    /// Exactly the keys the caller must supply in `amounts`.
+    pub required_amount_keys: Vec<String>,
 }
 
 /// One legal next move from the instance's current state.
@@ -436,9 +439,11 @@ impl LedgerHandler {
     /// capability name from `available` — never guess.
     ///
     /// For transitions that post a GL entry (`available[n].posting != null`), supply
-    /// `amounts` with key `"amount"` = the debit total in integer cents, plus one key
-    /// per entry in `posting.credit_roles` (values must sum to `"amount"`).
-    /// Non-posting transitions need no `amounts`.
+    /// `amounts` keyed by exactly the entries in `posting.required_amount_keys`:
+    /// `"amount"` = the debit total in integer cents, plus one key per credited role
+    /// when the rule credits more than one (those must sum to `"amount"`).
+    /// `posting.credit_roles` names the accounts being credited — descriptive, not
+    /// the keys to send.  Non-posting transitions need no `amounts`.
     ///
     /// On error the message names the available capabilities from the current state.
     #[tool(name = "advance_process")]
@@ -505,6 +510,7 @@ impl LedgerHandler {
                     posting: at.posting.map(|p| PostingRequirementResult {
                         debit_role: p.debit_role,
                         credit_roles: p.credit_roles,
+                        required_amount_keys: p.required_amount_keys,
                     }),
                 })
                 .collect(),
@@ -574,17 +580,20 @@ fn engine_error_to_string(e: ol_engine::EngineError) -> String {
         ol_engine::EngineError::PostingAmountsRequired {
             capability,
             debit_role,
-            credit_roles,
+            required_amount_keys,
             missing,
         } => ApiError::new(
             ErrorCode::Validation,
             format!(
-                "posting step '{capability}' needs amounts in integer cents: \
-                 key 'amount' = the debit total for role '{debit_role}', \
-                 plus one key per credit role [{credit_roles}]; \
-                 all credit amounts must sum to 'amount'. \
-                 Missing: [{missing}].",
-                credit_roles = credit_roles.join(", "),
+                "posting step '{capability}' needs amounts in integer cents, keyed exactly \
+                 [{required_amount_keys}]: key 'amount' = the debit total for role '{debit_role}'\
+                 {multi_credit_note}. Missing: [{missing}].",
+                multi_credit_note = if required_amount_keys.len() > 1 {
+                    ", and one key per credited role, all summing to 'amount'"
+                } else {
+                    " (the single credited account takes the whole total)"
+                },
+                required_amount_keys = required_amount_keys.join(", "),
                 missing = missing.join(", ")
             ),
         )
