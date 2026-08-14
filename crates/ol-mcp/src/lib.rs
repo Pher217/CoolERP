@@ -276,6 +276,18 @@ impl LedgerHandler {
     }
 }
 
+/// The tool contract this server advertises to MCP clients.
+///
+/// Exposed so that the tool surface can be inspected without standing up a
+/// server — used by the snapshot test below and by the cross-surface drift test
+/// in `ol-api` (issue #89), which checks that the chat manifest and this router
+/// have not diverged. The `tool_router()` the macro generates is private.
+pub fn advertised_tools() -> Vec<rmcp::model::Tool> {
+    let mut tools = LedgerHandler::tool_router().list_all();
+    tools.sort_by(|a, b| a.name.cmp(&b.name));
+    tools
+}
+
 #[tool_router]
 impl LedgerHandler {
     /// Post a balanced journal entry idempotently.

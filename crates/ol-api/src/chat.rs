@@ -926,3 +926,234 @@ fn processes_dir() -> std::path::PathBuf {
         .join("../..")
         .join("processes")
 }
+
+// ─── Cross-surface tool-drift tests ──────────────────────────────────────────
+
+/// CoolERP exposes two agent-facing tool surfaces that are written by hand in
+/// separate crates with no shared definition: the chat manifest in `tools()`
+/// above, and the MCP `#[tool]` router in `ol-mcp`. `ol-api` does not depend on
+/// `ol-mcp` at runtime, so nothing forces them to agree and they have already
+/// diverged (issue #89).
+///
+/// These tests pin the divergence rather than merely reporting it. Two lists do
+/// the work, and the distinction between them is the point:
+///
+/// * `INTENTIONAL_*` — differences that are correct and permanent.
+/// * `KNOWN_DRIFT_*` — differences that are *defects*, each citing the issue
+///   that tracks it. These are asserted as an **exact** set, so the test fails
+///   both when new drift appears and when tracked drift is fixed without being
+///   removed from the list. It stops the bleeding without pretending the wound
+///   is a feature.
+#[cfg(test)]
+mod tool_surface_tests {
+    use super::tools;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    /// Correct, permanent chat-only tools.
+    const INTENTIONAL_CHAT_ONLY: &[(&str, &str)] = &[(
+        "show_view",
+        "UI directive: switches the on-screen module in the web SPA. It drives \
+         the browser, not the ledger, and is meaningless to a headless MCP client.",
+    )];
+
+    /// Correct, permanent MCP-only tools.
+    const INTENTIONAL_MCP_ONLY: &[(&str, &str)] = &[];
+
+    /// Tool-name drift that is a defect, not a decision. Each entry cites its
+    /// tracking issue. Removing an entry is how a fix is landed.
+    const KNOWN_DRIFT_NAMES: &[(&str, &str)] = &[
+        (
+            "list_inventory",
+            "chat-only; unfiled drift — inventory reads are absent from MCP for no \
+             stated reason. Converge under #89.",
+        ),
+        (
+            "receive_stock",
+            "chat-only; must NOT be promoted to MCP until #90 gives it an \
+             idempotency contract — canonising an unsafe write is worse than the drift.",
+        ),
+        (
+            "get_process",
+            "MCP-only; the chat agent cannot fetch a process definition. Converge under #89.",
+        ),
+    ];
+
+    /// Required-parameter drift on tools present in both surfaces.
+    /// `(tool, param, why)` — `param` is required on one surface only.
+    const KNOWN_DRIFT_PARAMS: &[(&str, &str, &str)] = &[
+        (
+            "post_journal_entry",
+            "idempotency_key",
+            "Required on MCP and REST, absent from the chat schema — the direct \
+             cause of #86: the chat path mints a random key and can double-post.",
+        ),
+        (
+            "post_journal_entry",
+            "actor",
+            "Required on MCP, absent from the chat schema, which hardcodes \
+             actor=\"ai-chat\". Audit attribution differs by surface (#89).",
+        ),
+    ];
+
+    fn chat_tools() -> Vec<serde_json::Value> {
+        tools()
+            .as_array()
+            .expect("chat tools() must be a JSON array")
+            .clone()
+    }
+
+    fn chat_tool_names() -> BTreeSet<String> {
+        chat_tools()
+            .iter()
+            .map(|t| {
+                t["function"]["name"]
+                    .as_str()
+                    .expect("every chat tool needs a function.name")
+                    .to_string()
+            })
+            .collect()
+    }
+
+    /// name -> required-parameter names, chat surface.
+    fn chat_required() -> BTreeMap<String, BTreeSet<String>> {
+        chat_tools()
+            .iter()
+            .map(|t| {
+                let f = &t["function"];
+                let req = f["parameters"]["required"]
+                    .as_array()
+                    .map(|a| a.iter().map(|v| v.as_str().unwrap().to_string()).collect())
+                    .unwrap_or_default();
+                (f["name"].as_str().unwrap().to_string(), req)
+            })
+            .collect()
+    }
+
+    fn mcp_tool_names() -> BTreeSet<String> {
+        ol_mcp::advertised_tools()
+            .iter()
+            .map(|t| t.name.to_string())
+            .collect()
+    }
+
+    /// name -> required-parameter names, MCP surface.
+    fn mcp_required() -> BTreeMap<String, BTreeSet<String>> {
+        ol_mcp::advertised_tools()
+            .iter()
+            .map(|t| {
+                let req = t
+                    .input_schema
+                    .get("required")
+                    .and_then(|r| r.as_array())
+                    .map(|a| a.iter().map(|v| v.as_str().unwrap().to_string()).collect())
+                    .unwrap_or_default();
+                (t.name.to_string(), req)
+            })
+            .collect()
+    }
+
+    /// GIVEN the chat tool manifest and the MCP tool router,
+    /// WHEN the two tool-name sets are compared,
+    /// THEN the difference is exactly the intentional exceptions plus the
+    /// known-drift list — no more, and no less.
+    #[test]
+    fn tool_name_drift_is_exactly_the_documented_set() {
+        let chat = chat_tool_names();
+        let mcp = mcp_tool_names();
+
+        let mut actual_divergent: BTreeSet<String> = chat.difference(&mcp).cloned().collect();
+        actual_divergent.extend(mcp.difference(&chat).cloned());
+
+        let intentional: BTreeSet<String> = INTENTIONAL_CHAT_ONLY
+            .iter()
+            .chain(INTENTIONAL_MCP_ONLY)
+            .map(|(n, _)| n.to_string())
+            .collect();
+        let known_drift: BTreeSet<String> = KNOWN_DRIFT_NAMES
+            .iter()
+            .map(|(n, _)| n.to_string())
+            .collect();
+        let expected: BTreeSet<String> = intentional.union(&known_drift).cloned().collect();
+
+        let unexpected: Vec<&String> = actual_divergent.difference(&expected).collect();
+        let stale: Vec<&String> = expected.difference(&actual_divergent).collect();
+
+        assert!(
+            unexpected.is_empty(),
+            "NEW tool-surface drift: {unexpected:?}\n\
+             A tool was added to one agent surface and not the other. Add it to the \
+             other surface, or document it in INTENTIONAL_* / KNOWN_DRIFT_NAMES with a reason."
+        );
+        assert!(
+            stale.is_empty(),
+            "documented drift no longer exists: {stale:?}\n\
+             The surfaces now agree on these — delete their entries from \
+             KNOWN_DRIFT_NAMES / INTENTIONAL_* so the list keeps telling the truth."
+        );
+    }
+
+    /// GIVEN a tool present on both surfaces,
+    /// WHEN its required parameters are compared,
+    /// THEN the sets differ only by the entries in `KNOWN_DRIFT_PARAMS`.
+    ///
+    /// This is the field-level half. It is the check that would have caught
+    /// issue #86 — `post_journal_entry` requires `idempotency_key` on MCP and
+    /// REST but has no such field on chat, so that path cannot deduplicate.
+    #[test]
+    fn required_parameter_drift_is_exactly_the_documented_set() {
+        let chat = chat_required();
+        let mcp = mcp_required();
+
+        let mut actual: BTreeSet<(String, String)> = BTreeSet::new();
+        for (name, chat_req) in &chat {
+            let Some(mcp_req) = mcp.get(name) else {
+                continue; // name-set divergence is the other test's job
+            };
+            for p in mcp_req.symmetric_difference(chat_req) {
+                actual.insert((name.clone(), p.clone()));
+            }
+        }
+
+        let expected: BTreeSet<(String, String)> = KNOWN_DRIFT_PARAMS
+            .iter()
+            .map(|(t, p, _)| (t.to_string(), p.to_string()))
+            .collect();
+
+        let unexpected: Vec<&(String, String)> = actual.difference(&expected).collect();
+        let stale: Vec<&(String, String)> = expected.difference(&actual).collect();
+
+        assert!(
+            unexpected.is_empty(),
+            "NEW required-parameter drift between the chat and MCP surfaces: {unexpected:?}\n\
+             The same tool now demands different fields depending on which agent surface calls it."
+        );
+        assert!(
+            stale.is_empty(),
+            "documented parameter drift no longer exists: {stale:?}\n\
+             Delete the entries from KNOWN_DRIFT_PARAMS."
+        );
+    }
+
+    /// GIVEN the known-drift lists,
+    /// WHEN each entry is read,
+    /// THEN it carries a non-empty rationale.
+    ///
+    /// A bare allow-list decays into a list of things nobody remembers agreeing
+    /// to. The reason is the part that has to survive.
+    #[test]
+    fn every_documented_exception_states_a_reason() {
+        for (name, why) in INTENTIONAL_CHAT_ONLY
+            .iter()
+            .chain(INTENTIONAL_MCP_ONLY)
+            .chain(KNOWN_DRIFT_NAMES)
+        {
+            assert!(!why.trim().is_empty(), "{name} has no documented reason");
+        }
+        for (tool, param, why) in KNOWN_DRIFT_PARAMS {
+            assert!(
+                !why.trim().is_empty(),
+                "{tool}.{param} has no documented reason"
+            );
+        }
+    }
+}
