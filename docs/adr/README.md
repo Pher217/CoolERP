@@ -2,6 +2,11 @@
 
 This directory contains the [Nygard-format](https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions) architecture decision records for CoolERP. The numbering has gaps because only decisions still cited by the code, plus the full naming-decision trail (ADR-001 → ADR-010 → ADR-023), have been ported into the repo. The full decision history lives in the maintainer's private notes.
 
+ADR-024 and ADR-025 were ported on 2026-08-14, each on its own grounds:
+
+- **ADR-025** meets the citation rule directly. It is cited **eleven times** in code — nine in `ol-engine` (including its tests) and two in `ol-process` — so every reader following an `ADR-025` comment was landing on a document that did not exist here.
+- **ADR-024** is cited **nowhere** in code, so it does not meet that rule. It is included anyway because it records a deliberate, client-visible protocol deviation: under MCP `2025-06-18` a client sees a different error envelope than that revision specifies. A deviation an outside integrator can observe has to be documented where integrators look, and the citation rule — written for decisions the *code* points at — does not cover that case.
+
 | ADR | Title | Status | Summary |
 |---|---|---|---|
 | [ADR-001](0001-public-name-openledger.md) | Public name is "OpenLedger", not "OpenERP" | ⚠️ Superseded by ADR-010, then ADR-023 | First naming decision; origin of the `ol-*` crate prefix that survives today. |
@@ -19,5 +24,7 @@ This directory contains the [Nygard-format](https://cognitect.com/blog/2011/11/1
 | [ADR-021](0021-least-privilege-db-role.md) | Least-privilege application database role (`ol_app`) | Accepted (2026-07-16) | Application connects as a non-owner role that can never UPDATE/DELETE/TRUNCATE append-only ledger tables. |
 | [ADR-022](0022-honest-security-posture.md) | Honest security posture pre-launch | Accepted (2026-07-16) | Default API binds localhost, README claims are corrected to match reality, and DCO wording is fixed to clarify no relicensing rights. |
 | [ADR-023](0023-public-name-is-coolerp.md) | Public name is "CoolERP" | Accepted (2026-08-05) · **supersedes ADR-010**, closing the ADR-001 → ADR-010 thread | Public product and brand name is CoolERP; crate names remain `ol-*` and the GitHub repository URL is unchanged for now. |
+| [ADR-024](0024-adopt-rmcp-2-2.md) | Adopt rmcp 2.2: the malformed-argument envelope change is a conformance gain | Accepted (2026-08-09) · actioned in [PR #43](https://github.com/Pher217/CoolERP/pull/43) | Bump `rmcp` 1.7→2.2 and deliberately accept malformed tool arguments returning `isError: true` instead of `-32602`; under MCP 2025-11-25, which this project targets, 2.2 is the conformant one. |
+| [ADR-025](0025-posting-requirement-required-amount-keys.md) | `PostingRequirement` gains `required_amount_keys`; `credit_roles` becomes descriptive | Accepted (2026-08-09) · actioned in [PR #87](https://github.com/Pher217/CoolERP/pull/87) | Split the two halves of the posting contract: `credit_roles` describes what is credited and is always populated, `required_amount_keys` prescribes exactly what the caller must send. Closes #73 and #78. |
 
 **ADR-006 is designed but not implemented.** The API and MCP server currently run unauthenticated in development mode. See [SECURITY.md](../../SECURITY.md) for the current posture.
