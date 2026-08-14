@@ -18,6 +18,17 @@ use sqlx::PgPool;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+// ─── Timeouts ────────────────────────────────────────────────────────────────
+
+/// Wall-clock ceiling on a single Ollama request, overridable with
+/// `OL_CHAT_TIMEOUT_SECS`. Generous enough for a cold cloud model, finite so a
+/// hung backend cannot park the handler forever.
+const DEFAULT_CHAT_TIMEOUT_SECS: u64 = 120;
+
+/// Ceiling on establishing the TCP/TLS connection. Short on purpose: an Ollama
+/// that is not listening should fail fast rather than consume the full budget.
+const CHAT_CONNECT_TIMEOUT_SECS: u64 = 5;
+
 // ─── Public request/response types ───────────────────────────────────────────
 
 /// A single conversation turn (user or assistant).
@@ -730,7 +741,33 @@ pub async fn chat(State(pool): State<PgPool>, Json(req): Json<ChatRequest>) -> i
     }
     messages.push(serde_json::json!({ "role": "user", "content": req.message }));
 
-    let client = reqwest::Client::new();
+    // A chat turn can legitimately take a while (a cloud-hosted model, a cold
+    // load), but it must not take forever: without a timeout a hung Ollama
+    // connection parks this handler — and its database pool slot — indefinitely.
+    // Bounded per request, not per handler, so the 6-iteration loop cannot
+    // silently multiply into an unbounded wait.
+    let timeout_secs: u64 = std::env::var("OL_CHAT_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_CHAT_TIMEOUT_SECS);
+    let client = match reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(CHAT_CONNECT_TIMEOUT_SECS))
+        .timeout(std::time::Duration::from_secs(timeout_secs))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ChatResponse {
+                    reply: format!("Could not construct the HTTP client: {e}"),
+                    actions: Vec::new(),
+                    view: None,
+                }),
+            )
+                .into_response();
+        }
+    };
     let mut actions: Vec<ChatAction> = Vec::new();
     let mut reply = String::new();
     let mut view: Option<ViewDirective> = None;
