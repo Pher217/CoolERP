@@ -1386,6 +1386,7 @@ dependencies = [
  "ol-domain",
  "ol-engine",
  "ol-ledger",
+ "ol-mcp",
  "ol-process",
  "ol-sdk",
  "reqwest",

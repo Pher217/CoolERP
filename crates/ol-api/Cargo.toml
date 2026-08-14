@@ -36,3 +36,8 @@ reqwest.workspace = true
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
 sqlx = { workspace = true }
+# Dev-only, for the cross-surface tool-drift test in `src/chat.rs`. The two agent
+# surfaces (chat tool manifest, MCP tool router) are defined independently; this
+# is the only edge that lets one test see both. Deliberately NOT a runtime
+# dependency — `ol-api` must not link the MCP server.
+ol-mcp = { path = "../ol-mcp" }
