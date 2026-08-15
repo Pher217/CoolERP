@@ -205,11 +205,12 @@ async fn trial_balance_lines_ordered_by_code(pool: PgPool) {
 
 // ─── GET /reports/subledger-reconciliation ────────────────────────────────────
 
-/// Empty AR/AP: both sections show zero and reconcile.
+/// Empty AR/AP: both sections report zero totals and no difference.
 ///
 /// GIVEN no invoices or bills exist
 /// WHEN  GET /reports/subledger-reconciliation is called
-/// THEN  AR and AP both show control=0, subledger=0, difference=0
+/// THEN  AR and AP both show control=0, subledger=0, and a NULL difference
+///       with subledger_implemented=false (#85)
 #[sqlx::test(migrations = "../../migrations")]
 async fn subledger_reconciliation_empty_is_zero(pool: PgPool) {
     let (status, body) = get(pool, "/reports/subledger-reconciliation").await;
@@ -217,11 +218,19 @@ async fn subledger_reconciliation_empty_is_zero(pool: PgPool) {
 
     assert_eq!(body["ar"]["control_balance_cents"], 0, "AR control");
     assert_eq!(body["ar"]["subledger_total_cents"], 0, "AR subledger");
-    assert_eq!(body["ar"]["difference_cents"], 0, "AR difference");
+    assert!(
+        body["ar"]["difference_cents"].is_null(),
+        "AR difference must be absent while no sub-ledger write path exists (#85)"
+    );
+    assert_eq!(body["ar"]["subledger_implemented"], false, "AR write path");
 
     assert_eq!(body["ap"]["control_balance_cents"], 0, "AP control");
     assert_eq!(body["ap"]["subledger_total_cents"], 0, "AP subledger");
-    assert_eq!(body["ap"]["difference_cents"], 0, "AP difference");
+    assert!(
+        body["ap"]["difference_cents"].is_null(),
+        "AP difference must be absent while no sub-ledger write path exists (#85)"
+    );
+    assert_eq!(body["ap"]["subledger_implemented"], false, "AP write path");
 }
 
 /// AR subledger total matches open invoices; difference is zero after posting
@@ -272,7 +281,10 @@ async fn subledger_reconciliation_ar_reconciles_after_invoice_and_entry(pool: Pg
         body["ar"]["subledger_total_cents"], 30_000,
         "AR subledger total"
     );
-    assert_eq!(body["ar"]["difference_cents"], 0, "AR difference must be 0");
+    assert!(
+        body["ar"]["difference_cents"].is_null(),
+        "difference stays absent until the write path lands (#85); the totals above are the real subject"
+    );
 }
 
 /// Paid invoices are excluded from the AR sub-ledger total.
@@ -348,10 +360,9 @@ async fn subledger_reconciliation_ar_excludes_draft_invoices(pool: PgPool) {
         body["ar"]["subledger_total_cents"], 0,
         "draft invoice must not count toward AR subledger total"
     );
-    // Control is also 0 (no GL entry posted) → difference is 0.
-    assert_eq!(
-        body["ar"]["difference_cents"], 0,
-        "AR difference must be 0 when draft invoice is excluded"
+    assert!(
+        body["ar"]["difference_cents"].is_null(),
+        "difference stays absent until the write path lands (#85); draft exclusion is asserted on the total above"
     );
 }
 
@@ -403,7 +414,10 @@ async fn subledger_reconciliation_ap_reconciles_after_bill_and_entry(pool: PgPoo
         body["ap"]["subledger_total_cents"], 45_000,
         "AP subledger total"
     );
-    assert_eq!(body["ap"]["difference_cents"], 0, "AP difference must be 0");
+    assert!(
+        body["ap"]["difference_cents"].is_null(),
+        "difference stays absent until the write path lands (#85); the totals above are the real subject"
+    );
 }
 
 /// Trial balance per-currency filter returns only the requested currency,
