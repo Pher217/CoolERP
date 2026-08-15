@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, type MockInstance } from 'vitest'
 import { api, ApiError } from './client.ts'
 
 describe('ApiError', () => {
@@ -37,19 +37,26 @@ describe('api.chat', () => {
     finish_reason: overrides.finish_reason,
   })
 
+  let fetchMock: MockInstance<typeof fetch>
+
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
+  function mockFetch(status: number, body: unknown, statusText = 'OK') {
+    fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(body), { status, statusText }),
+    )
+    global.fetch = fetchMock as unknown as typeof fetch
+  }
+
   it('returns a parsed ChatResponse on 200', async () => {
     const body = makeChatResponse({ finish_reason: 'completed' })
-    global.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(body), { status: 200, statusText: 'OK' }),
-    )
+    mockFetch(200, body)
 
     const resp = await api.chat('hello')
     expect(resp).toEqual(body)
-    expect(global.fetch).toHaveBeenCalledWith(
+    expect(fetchMock).toHaveBeenCalledWith(
       'http://localhost:3000/chat',
       expect.objectContaining({
         method: 'POST',
@@ -68,9 +75,7 @@ describe('api.chat', () => {
       finish_reason: 'model_error',
       actions: [postedAction],
     })
-    global.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(body), { status: 502, statusText: 'Bad Gateway' }),
-    )
+    mockFetch(502, body, 'Bad Gateway')
 
     const resp = await api.chat('hello')
     expect(resp.finish_reason).toBe('model_error')
@@ -87,9 +92,7 @@ describe('api.chat', () => {
       finish_reason: 'transport_error',
       actions: [postedAction],
     })
-    global.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(body), { status: 503, statusText: 'Service Unavailable' }),
-    )
+    mockFetch(503, body, 'Service Unavailable')
 
     const resp = await api.chat('hello')
     expect(resp.finish_reason).toBe('transport_error')
@@ -98,22 +101,16 @@ describe('api.chat', () => {
 
   it('passes conversation_id when provided', async () => {
     const body = makeChatResponse({ finish_reason: 'completed' })
-    global.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify(body), { status: 200, statusText: 'OK' }),
-    )
+    mockFetch(200, body)
 
     await api.chat('hello', [], 'conv-123')
-    const callBody = JSON.parse(global.fetch.mock.calls[0][1].body as string)
+    const [, init] = fetchMock.mock.calls[0]
+    const callBody = JSON.parse((init as RequestInit).body as string)
     expect(callBody.conversation_id).toBe('conv-123')
   })
 
   it('throws ApiError for a non-200/502/503 status with a structured body', async () => {
-    global.fetch = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ error: { code: 'INTERNAL', message: 'server on fire' } }), {
-        status: 500,
-        statusText: 'Internal Server Error',
-      }),
-    )
+    mockFetch(500, { error: { code: 'INTERNAL', message: 'server on fire' } }, 'Internal Server Error')
 
     await expect(api.chat('hello')).rejects.toSatisfy((err: ApiError) => {
       expect(err).toBeInstanceOf(ApiError)
@@ -125,9 +122,10 @@ describe('api.chat', () => {
   })
 
   it('throws ApiError for a non-200/502/503 status with an unparseable body', async () => {
-    global.fetch = vi.fn().mockResolvedValue(
+    fetchMock = vi.fn().mockResolvedValue(
       new Response('teapot', { status: 418, statusText: "I'm a teapot" }),
     )
+    global.fetch = fetchMock as unknown as typeof fetch
 
     await expect(api.chat('hello')).rejects.toSatisfy((err: ApiError) => {
       expect(err).toBeInstanceOf(ApiError)
