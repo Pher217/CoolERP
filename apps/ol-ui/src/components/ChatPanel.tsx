@@ -84,6 +84,11 @@ export function ChatPanel({ onView }: ChatPanelProps) {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  // Stable for the life of this panel. The server derives tool idempotency keys
+  // from it, so retrying an identical request deduplicates instead of posting
+  // twice; without it the server mints a fresh id per request and cross-request
+  // deduplication cannot engage at all.
+  const conversationId = useRef<string>(crypto.randomUUID())
 
   function scrollToBottom() {
     setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
@@ -106,13 +111,21 @@ export function ChatPanel({ onView }: ChatPanelProps) {
     }))
 
     try {
-      const resp = await api.chat(text, history)
+      const resp = await api.chat(text, history, conversationId.current)
       if (resp.view) {
         onView?.(resp.view.module, resp.view.focus)
       }
+      // A run that did not complete must never be rendered as if it had, and its
+      // actions must survive: on a 502 the model call failed AFTER tools may
+      // already have posted to the ledger, so `actions` is the user's only
+      // record of what landed. Showing "could not reach the API" and dropping
+      // them would hide real accounting work.
       const assistantMsg: Message = {
         role: 'assistant',
-        content: resp.reply,
+        content:
+          resp.finish_reason === 'completed'
+            ? resp.reply
+            : `⚠️ ${resp.reply}`,
         actions: resp.actions,
       }
       setMessages([...updatedMessages, assistantMsg])

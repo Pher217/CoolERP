@@ -114,10 +114,18 @@ export type ChatView = {
   focus?: string | null
 }
 
+/** Why a chat run ended. Anything but `completed` means it did NOT finish. */
+export type FinishReason =
+  | 'completed'
+  | 'max_iterations'
+  | 'model_error'
+  | 'transport_error'
+
 export type ChatResponse = {
   reply: string
   actions: ChatAction[]
   view?: ChatView | null
+  finish_reason: FinishReason
 }
 
 export type InventoryItem = {
@@ -248,8 +256,47 @@ export const api = {
    * Send a message to the AI assistant with optional conversation history.
    * Returns the assistant reply and any ledger actions taken.
    */
-  chat(message: string, history: ChatTurn[] = []): Promise<ChatResponse> {
-    return post<ChatResponse>('/chat', { message, history })
+  async chat(
+    message: string,
+    history: ChatTurn[] = [],
+    conversationId?: string,
+  ): Promise<ChatResponse> {
+    // Deliberately NOT the generic `post` helper. /chat returns a full
+    // ChatResponse on its error statuses too (502 unparseable model response,
+    // 503 backend unreachable), and that body is not disposable: a 502 can fire
+    // AFTER tool calls have already executed, so `actions` is the only record
+    // the user has of what actually landed. `post` would throw, try to parse an
+    // { error: { code, message } } envelope that is not there, and discard it.
+    const res = await fetch(`${API_BASE}/chat`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message,
+        history,
+        conversation_id: conversationId,
+      }),
+    })
+
+    if (res.status === 200 || res.status === 502 || res.status === 503) {
+      return (await res.json()) as ChatResponse
+    }
+
+    // Anything else is a genuine protocol failure with no ChatResponse to show.
+    let message_ = `POST /chat → ${res.status} ${res.statusText}`
+    let code: string | undefined
+    try {
+      const errBody = (await res.json()) as ApiErrorBody
+      if (errBody?.error?.message) {
+        message_ = errBody.error.message
+        code = errBody.error.code
+      }
+    } catch {
+      // body not parseable — keep the generic message
+    }
+    throw new ApiError(res.status, message_, code)
   },
 
   /** GET /metrics/overview */
