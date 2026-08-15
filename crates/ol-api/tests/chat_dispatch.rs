@@ -11,9 +11,18 @@
 //!     -H 'Content-Type: application/json' \
 //!     -d '{"message":"What is the balance of account 1000?"}'
 
-use ol_api::chat::dispatch_tool;
+use ol_api::chat::{ToolContext, dispatch_tool};
 use serde_json::json;
 use sqlx::PgPool;
+
+/// A fresh tool context per call: these tests exercise dispatch, not replay.
+/// Tests that DO exercise replay build their own stable `ToolContext`.
+fn test_ctx() -> ToolContext {
+    ToolContext {
+        conversation_id: uuid::Uuid::new_v4(),
+        turn: 0,
+    }
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -31,6 +40,7 @@ async fn post_balanced_eur(pool: &PgPool, amount_cents: i64) -> serde_json::Valu
                 { "account_code": "4000", "debit": 0, "credit": amount_cents, "currency": "EUR" }
             ]
         }),
+        &test_ctx(),
     )
     .await
     .expect("balanced post must succeed")
@@ -48,6 +58,7 @@ async fn get_balance_after_post(pool: PgPool) {
         &pool,
         "get_account_balance",
         &json!({ "account_code": "1000" }),
+        &test_ctx(),
     )
     .await
     .expect("get_account_balance must succeed");
@@ -80,6 +91,7 @@ async fn post_balanced_entry_returns_result(pool: PgPool) {
         &pool,
         "get_account_balance",
         &json!({ "account_code": "1000" }),
+        &test_ctx(),
     )
     .await
     .expect("balance query must succeed");
@@ -101,6 +113,7 @@ async fn post_unbalanced_entry_returns_err(pool: PgPool) {
                 { "account_code": "4000", "debit": 0,    "credit": 999 }
             ]
         }),
+        &test_ctx(),
     )
     .await
     .expect_err("unbalanced post must return Err");
@@ -115,6 +128,7 @@ async fn post_unbalanced_entry_returns_err(pool: PgPool) {
         &pool,
         "get_account_balance",
         &json!({ "account_code": "1000" }),
+        &test_ctx(),
     )
     .await
     .expect("balance query must succeed");
@@ -124,7 +138,7 @@ async fn post_unbalanced_entry_returns_err(pool: PgPool) {
 /// Unknown tool name returns Err.
 #[sqlx::test(migrations = "../../migrations")]
 async fn unknown_tool_returns_err(pool: PgPool) {
-    let err = dispatch_tool(&pool, "drop_all_tables", &json!({}))
+    let err = dispatch_tool(&pool, "drop_all_tables", &json!({}), &test_ctx())
         .await
         .expect_err("unknown tool must return Err");
 
@@ -137,7 +151,7 @@ async fn unknown_tool_returns_err(pool: PgPool) {
 // ─── Engine tool tests ────────────────────────────────────────────────────────
 
 /// GIVEN a valid process name
-/// WHEN dispatch_tool("start_process", ...) is called
+/// WHEN dispatch_tool("start_process", ..., &test_ctx()) is called
 /// THEN an instance is returned at the initial state
 #[sqlx::test(migrations = "../../migrations")]
 async fn start_process_tool_creates_instance(pool: PgPool) {
@@ -145,6 +159,7 @@ async fn start_process_tool_creates_instance(pool: PgPool) {
         &pool,
         "start_process",
         &json!({ "process": "order_to_cash", "reference": "SO-CHAT-001" }),
+        &test_ctx(),
     )
     .await
     .expect("start_process must succeed");
@@ -157,7 +172,7 @@ async fn start_process_tool_creates_instance(pool: PgPool) {
 }
 
 /// GIVEN an instance started via start_process
-/// WHEN dispatch_tool("advance_process", ...) is called with a valid non-posting capability
+/// WHEN dispatch_tool("advance_process", ..., &test_ctx()) is called with a valid non-posting capability
 /// THEN the instance moves to the next state
 #[sqlx::test(migrations = "../../migrations")]
 async fn advance_process_tool_non_posting_step(pool: PgPool) {
@@ -166,6 +181,7 @@ async fn advance_process_tool_non_posting_step(pool: PgPool) {
         &pool,
         "start_process",
         &json!({ "process": "order_to_cash" }),
+        &test_ctx(),
     )
     .await
     .expect("start_process must succeed");
@@ -176,6 +192,7 @@ async fn advance_process_tool_non_posting_step(pool: PgPool) {
         &pool,
         "advance_process",
         &json!({ "instance_id": id, "capability": "confirm_order" }),
+        &test_ctx(),
     )
     .await
     .expect("advance_process must succeed");
@@ -186,7 +203,7 @@ async fn advance_process_tool_non_posting_step(pool: PgPool) {
 }
 
 /// GIVEN an instance walked to "fulfillment"
-/// WHEN dispatch_tool("advance_process", "deliver", amounts {amount: 3000})
+/// WHEN dispatch_tool("advance_process", "deliver", amounts {amount: 3000}, &test_ctx())
 /// THEN the instance moves to "shipped" and the COGS balance increases
 #[sqlx::test(migrations = "../../migrations")]
 async fn advance_process_tool_posting_step_moves_balance(pool: PgPool) {
@@ -197,6 +214,7 @@ async fn advance_process_tool_posting_step_moves_balance(pool: PgPool) {
         &pool,
         "get_account_balance",
         &json!({ "account_code": "5000" }),
+        &test_ctx(),
     )
     .await
     .expect("balance query must succeed");
@@ -211,6 +229,7 @@ async fn advance_process_tool_posting_step_moves_balance(pool: PgPool) {
             "capability": "deliver",
             "amounts": { "amount": 3000 }
         }),
+        &test_ctx(),
     )
     .await
     .expect("advance_process must succeed");
@@ -222,6 +241,7 @@ async fn advance_process_tool_posting_step_moves_balance(pool: PgPool) {
         &pool,
         "get_account_balance",
         &json!({ "account_code": "5000" }),
+        &test_ctx(),
     )
     .await
     .expect("balance query must succeed");
@@ -234,7 +254,7 @@ async fn advance_process_tool_posting_step_moves_balance(pool: PgPool) {
 }
 
 /// GIVEN an illegal capability for the current state
-/// WHEN dispatch_tool("advance_process", ...) is called
+/// WHEN dispatch_tool("advance_process", ..., &test_ctx()) is called
 /// THEN Err is returned so the model can read and explain it
 #[sqlx::test(migrations = "../../migrations")]
 async fn advance_process_tool_illegal_capability_returns_err(pool: PgPool) {
@@ -242,6 +262,7 @@ async fn advance_process_tool_illegal_capability_returns_err(pool: PgPool) {
         &pool,
         "start_process",
         &json!({ "process": "order_to_cash" }),
+        &test_ctx(),
     )
     .await
     .expect("start_process must succeed");
@@ -251,6 +272,7 @@ async fn advance_process_tool_illegal_capability_returns_err(pool: PgPool) {
         &pool,
         "advance_process",
         &json!({ "instance_id": id, "capability": "register_payment" }),
+        &test_ctx(),
     )
     .await
     .expect_err("illegal capability must return Err");
@@ -267,6 +289,7 @@ async fn chat_walk_to_fulfillment(pool: &sqlx::PgPool) -> i64 {
         pool,
         "start_process",
         &json!({ "process": "order_to_cash" }),
+        &test_ctx(),
     )
     .await
     .expect("start_process");
@@ -282,6 +305,7 @@ async fn chat_walk_to_fulfillment(pool: &sqlx::PgPool) -> i64 {
             pool,
             "advance_process",
             &json!({ "instance_id": id, "capability": cap }),
+            &test_ctx(),
         )
         .await
         .unwrap_or_else(|e| panic!("advance_process {cap} failed: {e}"));

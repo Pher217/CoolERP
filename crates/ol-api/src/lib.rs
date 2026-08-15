@@ -509,21 +509,34 @@ pub async fn get_inventory(State(pool): State<PgPool>) -> impl IntoResponse {
 /// Request body for `POST /inventory/receive`.
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct ReceiveStockRequest {
+    /// Caller-supplied key making the receipt retry-safe. Re-submitting the same
+    /// key returns the original `move_id` with `replayed: true` (#90).
+    pub idempotency_key: Uuid,
     pub sku: String,
     pub location_code: String,
     /// Quantity as a decimal string, parsed by PostgreSQL as NUMERIC.
     pub qty: String,
     /// Optional unit cost as a decimal string, parsed by PostgreSQL as NUMERIC.
     pub unit_cost: Option<String>,
+    /// Audit actor — recorded in `events`, exactly as a ledger post is.
+    pub actor: String,
 }
 
 /// Response body for `POST /inventory/receive`.
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ReceiveStockResponse {
     pub move_id: i64,
     pub sku: String,
     pub qty: String,
+    /// `true` when the idempotency key was already used; the original move is
+    /// returned unchanged and no second stock move was created.
+    #[serde(default)]
+    pub replayed: bool,
 }
+
+/// Operation name for inventory receipts in `idempotency_keys.operation` and
+/// `events.capability`. Mirrors `ol_ledger`'s `post_journal_entry`.
+const RECEIVE_STOCK_OPERATION: &str = "receive_stock";
 
 /// Shared receipt logic used by the REST handler and the chat tool executor.
 pub async fn receive_stock_core(
@@ -545,6 +558,53 @@ pub async fn receive_stock_core(
     .map_err(|e| format!("database error: {e}"))?
     .ok_or_else(|| format!("location not found: {}", body.location_code))?;
 
+    // Claim the idempotency key, insert the move, and record the audit event in
+    // ONE transaction — the same shape `ol_ledger::post_journal_entry` uses.
+    // Nothing new is invented here: `idempotency_keys` and `events` are already
+    // generic over `operation`/`capability`, so no migration is needed. Inventory
+    // simply never adopted the mechanism (#90).
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|e| format!("database error: {e}"))?;
+
+    // RETURNING 1 is Some(_) iff we inserted, i.e. we own this receipt.
+    let claimed: Option<i32> = sqlx::query_scalar(
+        "INSERT INTO idempotency_keys (operation, idempotency_key) \
+         VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING 1",
+    )
+    .bind(RECEIVE_STOCK_OPERATION)
+    .bind(body.idempotency_key)
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(|e| format!("database error: {e}"))?;
+
+    if claimed.is_none() {
+        // Replay. Read the stored result on the pool rather than inside this
+        // transaction: the owning transaction may have committed after our
+        // snapshot was taken, and a NULL result means the owner is still in
+        // flight rather than that the receipt failed.
+        let _ = tx.rollback().await;
+        let stored: Option<Option<serde_json::Value>> = sqlx::query_scalar(
+            "SELECT result FROM idempotency_keys WHERE operation = $1 AND idempotency_key = $2",
+        )
+        .bind(RECEIVE_STOCK_OPERATION)
+        .bind(body.idempotency_key)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| format!("database error: {e}"))?;
+
+        return match stored.flatten() {
+            Some(json) => {
+                let mut result: ReceiveStockResponse = serde_json::from_value(json)
+                    .map_err(|e| format!("could not decode stored receipt: {e}"))?;
+                result.replayed = true;
+                Ok(result)
+            }
+            None => Err("a receipt with this idempotency key is still in flight".to_string()),
+        };
+    }
+
     let move_id: i64 = sqlx::query_scalar::<_, i64>(
         r#"
         INSERT INTO stock_moves (item_id, qty, to_location, unit_cost)
@@ -555,16 +615,64 @@ pub async fn receive_stock_core(
     .bind(item_id)
     .bind(body.qty.clone())
     .bind(location_id)
-    .bind(body.unit_cost)
-    .fetch_one(pool)
+    .bind(body.unit_cost.clone())
+    .fetch_one(&mut *tx)
     .await
     .map_err(|e| format!("database error: {e}"))?;
 
-    Ok(ReceiveStockResponse {
+    // Attribution goes in `events`, not a new `stock_moves.actor` column: that is
+    // where the ledger records it (`journal_entries` has no actor column either),
+    // and a second convention would be worse than none. Before this, a stock
+    // movement produced NO audit row at all.
+    sqlx::query(
+        "INSERT INTO events (actor, capability, inputs_hash, entity_id, result_ids) \
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(&body.actor)
+    .bind(RECEIVE_STOCK_OPERATION)
+    .bind(receipt_inputs_hash(&body))
+    .bind(move_id.to_string())
+    .bind(vec![move_id])
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| format!("database error: {e}"))?;
+
+    let response = ReceiveStockResponse {
         move_id,
-        sku: body.sku,
-        qty: body.qty,
-    })
+        sku: body.sku.clone(),
+        qty: body.qty.clone(),
+        replayed: false,
+    };
+
+    // Store the result in the SAME transaction as the claim, so a visible claim
+    // row always has a non-NULL result.
+    sqlx::query(
+        "UPDATE idempotency_keys SET result = $3 WHERE operation = $1 AND idempotency_key = $2",
+    )
+    .bind(RECEIVE_STOCK_OPERATION)
+    .bind(body.idempotency_key)
+    .bind(serde_json::to_value(&response).map_err(|e| format!("encode error: {e}"))?)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| format!("database error: {e}"))?;
+
+    tx.commit()
+        .await
+        .map_err(|e| format!("database error: {e}"))?;
+
+    Ok(response)
+}
+
+/// Stable hash of the receipt's economic content, for the audit trail.
+fn receipt_inputs_hash(body: &ReceiveStockRequest) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    body.sku.hash(&mut h);
+    body.location_code.hash(&mut h);
+    body.qty.hash(&mut h);
+    body.unit_cost.hash(&mut h);
+    format!("{:016x}", h.finish())
 }
 
 /// Receive stock into a location.
@@ -574,6 +682,7 @@ pub async fn receive_stock_core(
     request_body = ReceiveStockRequest,
     responses(
         (status = 201, description = "Stock move created", body = ReceiveStockResponse),
+        (status = 200, description = "Idempotency key already used; the original move is returned with `replayed: true`", body = ReceiveStockResponse),
         (status = 404, description = "Item or location not found", body = ErrorBody),
         (status = 422, description = "Invalid numeric quantity or unit cost", body = ErrorBody),
         (status = 500, description = "Database error", body = ErrorBody),
@@ -584,6 +693,9 @@ pub async fn receive_stock(
     Json(body): Json<ReceiveStockRequest>,
 ) -> impl IntoResponse {
     match receive_stock_core(&pool, body).await {
+        // 200 on replay, 201 on create: a replay created nothing, and this is the
+        // convention `POST /journal-entries` already follows.
+        Ok(resp) if resp.replayed => (StatusCode::OK, Json(resp)).into_response(),
         Ok(resp) => (StatusCode::CREATED, Json(resp)).into_response(),
         Err(msg) => {
             let (status, code) = if msg.contains("not found") {

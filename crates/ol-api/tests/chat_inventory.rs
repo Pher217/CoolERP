@@ -4,9 +4,18 @@
 //! items (WIDGET-A, WIDGET-B, GADGET-1, BOLT-10).  Tests exercise the
 //! deterministic `dispatch_tool` executor so no Ollama daemon is required.
 
-use ol_api::chat::dispatch_tool;
+use ol_api::chat::{ToolContext, dispatch_tool};
 use serde_json::json;
 use sqlx::PgPool;
+
+/// A fresh tool context per call: these tests exercise dispatch, not replay.
+/// Tests that DO exercise replay build their own stable `ToolContext`.
+fn test_ctx() -> ToolContext {
+    ToolContext {
+        conversation_id: uuid::Uuid::new_v4(),
+        turn: 0,
+    }
+}
 
 /// receive_stock creates a move and list_inventory reports the new on-hand qty.
 #[sqlx::test(migrations = "../../migrations")]
@@ -20,6 +29,7 @@ async fn receive_stock_then_list_inventory_reflects_qty(pool: PgPool) {
             "qty": "10",
             "unit_cost": "250"
         }),
+        &test_ctx(),
     )
     .await
     .expect("receive_stock must succeed");
@@ -28,7 +38,7 @@ async fn receive_stock_then_list_inventory_reflects_qty(pool: PgPool) {
     assert_eq!(result["qty"], "10", "qty echoed in response");
     assert!(result["move_id"].is_i64(), "move_id must be an integer");
 
-    let list = dispatch_tool(&pool, "list_inventory", &json!({}))
+    let list = dispatch_tool(&pool, "list_inventory", &json!({}), &test_ctx())
         .await
         .expect("list_inventory must succeed");
     let items = list
@@ -53,6 +63,7 @@ async fn show_view_dispatch_returns_module(pool: PgPool) {
         &pool,
         "show_view",
         &json!({ "module": "inventory", "focus": "WIDGET-A" }),
+        &test_ctx(),
     )
     .await
     .expect("show_view must succeed");
@@ -65,9 +76,14 @@ async fn show_view_dispatch_returns_module(pool: PgPool) {
 /// show_view rejects an unknown module.
 #[sqlx::test(migrations = "../../migrations")]
 async fn show_view_invalid_module_returns_err(pool: PgPool) {
-    let err = dispatch_tool(&pool, "show_view", &json!({ "module": "bad_module" }))
-        .await
-        .expect_err("invalid module must fail");
+    let err = dispatch_tool(
+        &pool,
+        "show_view",
+        &json!({ "module": "bad_module" }),
+        &test_ctx(),
+    )
+    .await
+    .expect_err("invalid module must fail");
 
     assert!(
         err.contains("invalid module"),
@@ -82,6 +98,7 @@ async fn receive_stock_missing_item_returns_err(pool: PgPool) {
         &pool,
         "receive_stock",
         &json!({ "sku": "NO-SUCH-SKU", "location_code": "MAIN", "qty": "1" }),
+        &test_ctx(),
     )
     .await
     .expect_err("missing item must fail");
@@ -99,6 +116,7 @@ async fn receive_stock_missing_location_returns_err(pool: PgPool) {
         &pool,
         "receive_stock",
         &json!({ "sku": "WIDGET-A", "location_code": "NO-SUCH-LOC", "qty": "1" }),
+        &test_ctx(),
     )
     .await
     .expect_err("missing location must fail");
@@ -112,7 +130,7 @@ async fn receive_stock_missing_location_returns_err(pool: PgPool) {
 /// list_inventory includes all seeded items with zero on_hand before any moves.
 #[sqlx::test(migrations = "../../migrations")]
 async fn list_inventory_seeded_items_start_at_zero(pool: PgPool) {
-    let list = dispatch_tool(&pool, "list_inventory", &json!({}))
+    let list = dispatch_tool(&pool, "list_inventory", &json!({}), &test_ctx())
         .await
         .expect("list_inventory must succeed");
     let items = list
