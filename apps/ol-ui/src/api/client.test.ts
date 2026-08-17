@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { ApiError } from './client.ts'
+import { describe, it, expect, vi, afterEach, type MockInstance } from 'vitest'
+import { api, ApiError } from './client.ts'
 
 describe('ApiError', () => {
   it('carries status and message', () => {
@@ -24,5 +24,115 @@ describe('ApiError', () => {
     const err = new ApiError(400, 'bad request')
     expect(err instanceof ApiError).toBe(true)
     expect(err instanceof Error).toBe(true)
+  })
+})
+
+describe('api.chat', () => {
+  const makeChatResponse = (overrides: {
+    finish_reason: 'completed' | 'model_error' | 'transport_error'
+    actions?: { tool: string; args: Record<string, unknown>; result?: unknown; error?: string }[]
+  }) => ({
+    reply: 'reply text',
+    actions: overrides.actions ?? [],
+    finish_reason: overrides.finish_reason,
+  })
+
+  let fetchMock: MockInstance<typeof fetch>
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  function mockFetch(status: number, body: unknown, statusText = 'OK') {
+    fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(body), { status, statusText }),
+    )
+    global.fetch = fetchMock as unknown as typeof fetch
+  }
+
+  it('returns a parsed ChatResponse on 200', async () => {
+    const body = makeChatResponse({ finish_reason: 'completed' })
+    mockFetch(200, body)
+
+    const resp = await api.chat('hello')
+    expect(resp).toEqual(body)
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://localhost:3000/chat',
+      expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('"message":"hello"'),
+      }),
+    )
+  })
+
+  it('returns actions on a 502 model_error instead of throwing them away', async () => {
+    const postedAction = {
+      tool: 'post_journal_entry',
+      args: { from: '1000', to: '4000', amount_cents: 10000 },
+      result: { entry_id: 7 },
+    }
+    const body = makeChatResponse({
+      finish_reason: 'model_error',
+      actions: [postedAction],
+    })
+    mockFetch(502, body, 'Bad Gateway')
+
+    const resp = await api.chat('hello')
+    expect(resp.finish_reason).toBe('model_error')
+    expect(resp.actions).toEqual([postedAction])
+  })
+
+  it('returns actions on a 503 transport_error instead of throwing them away', async () => {
+    const postedAction = {
+      tool: 'receive_stock',
+      args: { sku: 'WIDGET-1', quantity: 10 },
+      result: { stock_move_id: 3 },
+    }
+    const body = makeChatResponse({
+      finish_reason: 'transport_error',
+      actions: [postedAction],
+    })
+    mockFetch(503, body, 'Service Unavailable')
+
+    const resp = await api.chat('hello')
+    expect(resp.finish_reason).toBe('transport_error')
+    expect(resp.actions).toEqual([postedAction])
+  })
+
+  it('passes conversation_id when provided', async () => {
+    const body = makeChatResponse({ finish_reason: 'completed' })
+    mockFetch(200, body)
+
+    await api.chat('hello', [], 'conv-123')
+    const [, init] = fetchMock.mock.calls[0]
+    const callBody = JSON.parse((init as RequestInit).body as string)
+    expect(callBody.conversation_id).toBe('conv-123')
+  })
+
+  it('throws ApiError for a non-200/502/503 status with a structured body', async () => {
+    mockFetch(500, { error: { code: 'INTERNAL', message: 'server on fire' } }, 'Internal Server Error')
+
+    await expect(api.chat('hello')).rejects.toSatisfy((err: ApiError) => {
+      expect(err).toBeInstanceOf(ApiError)
+      expect(err.status).toBe(500)
+      expect(err.message).toBe('server on fire')
+      expect(err.code).toBe('INTERNAL')
+      return true
+    })
+  })
+
+  it('throws ApiError for a non-200/502/503 status with an unparseable body', async () => {
+    fetchMock = vi.fn().mockResolvedValue(
+      new Response('teapot', { status: 418, statusText: "I'm a teapot" }),
+    )
+    global.fetch = fetchMock as unknown as typeof fetch
+
+    await expect(api.chat('hello')).rejects.toSatisfy((err: ApiError) => {
+      expect(err).toBeInstanceOf(ApiError)
+      expect(err.status).toBe(418)
+      expect(err.message).toBe("POST /chat → 418 I'm a teapot")
+      expect(err.code).toBeUndefined()
+      return true
+    })
   })
 })

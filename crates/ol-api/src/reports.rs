@@ -185,6 +185,26 @@ pub async fn trial_balance(
 
 // ─── GET /reports/subledger-reconciliation ───────────────────────────────────
 
+/// No production writer exists for invoices / bills yet (#85). Flip this to
+/// true in the same change that lands the AR/AP write path — the tests below
+/// pin both branches, so flipping it without implementing the writer fails CI.
+const SUBLEDGER_WRITE_PATH_EXISTS: bool = false;
+
+/// The raw reconciliation arithmetic. Pure and always meaningful in isolation,
+/// so it stays under test even while the reported value is gated below.
+fn difference_cents(control_cents: i64, subledger_cents: i64) -> i64 {
+    control_cents - subledger_cents
+}
+
+/// The difference as reported to clients: `None` while no write path exists.
+///
+/// Split from `difference_cents` deliberately. Gating the arithmetic itself
+/// would have deleted its test coverage until the AR/AP writer lands, which is
+/// exactly when a silent regression would be most expensive.
+fn reported_difference(control_cents: i64, subledger_cents: i64) -> Option<i64> {
+    SUBLEDGER_WRITE_PATH_EXISTS.then(|| difference_cents(control_cents, subledger_cents))
+}
+
 /// Reconciliation figures for one sub-ledger (AR or AP).
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SubledgerSection {
@@ -194,10 +214,15 @@ pub struct SubledgerSection {
     /// Sum of open document totals in the sub-ledger, in integer cents.
     #[schema(value_type = i64, format = Int64)]
     pub subledger_total_cents: i64,
-    /// Difference: control_balance_cents − subledger_total_cents.
-    /// Zero means reconciliation passes.
-    #[schema(value_type = i64, format = Int64)]
-    pub difference_cents: i64,
+    /// Whether a production write path exists for this sub-ledger. While false,
+    /// the sub-ledger is structurally empty and difference_cents is null: the
+    /// comparison is not meaningful, and reporting a difference would fabricate
+    /// a reconciliation failure equal to the whole control balance (#85).
+    pub subledger_implemented: bool,
+    /// Difference: control_balance_cents - subledger_total_cents. Zero means
+    /// reconciliation passes. NULL when subledger_implemented is false.
+    #[schema(value_type = Option<i64>, format = Int64)]
+    pub difference_cents: Option<i64>,
 }
 
 /// Sub-ledger reconciliation report: AR and AP control vs sub-ledger check.
@@ -219,8 +244,11 @@ pub struct SubledgerReconciliationResponse {
 ///   liability — credit-positive) against the sum of all open **posted** bills
 ///   (`state = 'posted'`). Draft bills are excluded for the same reason.
 ///
-/// A `difference_cents` of zero means the sub-ledger reconciles with the
-/// control account.
+/// `difference_cents` is null while `subledger_implemented` is false, because
+/// the invoices / bills tables currently have no production write path. The
+/// sub-ledger is therefore structurally empty and reporting a numeric
+/// difference would fabricate a reconciliation failure equal to the entire
+/// control balance (issue #85).
 #[utoipa::path(
     get,
     path = "/reports/subledger-reconciliation",
@@ -344,14 +372,63 @@ pub async fn subledger_reconciliation(State(pool): State<PgPool>) -> impl IntoRe
             ar: SubledgerSection {
                 control_balance_cents: ar_control_balance,
                 subledger_total_cents: ar_subledger_total,
-                difference_cents: ar_control_balance - ar_subledger_total,
+                subledger_implemented: SUBLEDGER_WRITE_PATH_EXISTS,
+                difference_cents: reported_difference(ar_control_balance, ar_subledger_total),
             },
             ap: SubledgerSection {
                 control_balance_cents: ap_control_balance,
                 subledger_total_cents: ap_subledger_total,
-                difference_cents: ap_control_balance - ap_subledger_total,
+                subledger_implemented: SUBLEDGER_WRITE_PATH_EXISTS,
+                difference_cents: reported_difference(ap_control_balance, ap_subledger_total),
             },
         }),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod reconciliation_tests {
+    use super::*;
+
+    /// GIVEN a control balance and a sub-ledger total,
+    /// WHEN the difference is computed,
+    /// THEN it is control minus sub-ledger.
+    #[test]
+    fn difference_is_control_minus_subledger() {
+        assert_eq!(difference_cents(30_000, 30_000), 0, "reconciled");
+        assert_eq!(
+            difference_cents(30_000, 25_000),
+            5_000,
+            "control exceeds subledger"
+        );
+        assert_eq!(
+            difference_cents(25_000, 30_000),
+            -5_000,
+            "subledger exceeds control"
+        );
+    }
+
+    /// GIVEN no production write path for the sub-ledger,
+    /// WHEN the reported difference is computed,
+    /// THEN it is None regardless of the inputs.
+    ///
+    /// The point of #85: with a non-zero control account and a structurally
+    /// empty sub-ledger, a numeric answer here is a fabricated reconciliation
+    /// failure equal to the entire balance.
+    #[test]
+    fn reported_difference_is_absent_while_no_write_path_exists() {
+        // Pins the current (false) branch. When the AR/AP write path lands and
+        // SUBLEDGER_WRITE_PATH_EXISTS flips, this test fails and must be rewritten
+        // to assert Some(..) — that failure is the reminder, and is the point.
+        assert_eq!(
+            reported_difference(30_000, 0),
+            None,
+            "must not fabricate a difference"
+        );
+        assert_eq!(
+            reported_difference(0, 0),
+            None,
+            "absent even when it would be zero"
+        );
+    }
 }

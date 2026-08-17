@@ -4,9 +4,13 @@
 //! and fills their fields; `dispatch_tool` executes them deterministically and
 //! returns structured results. The model never computes balances or touches SQL.
 //!
-//! The Ollama tool loop is NOT covered by automated tests (non-deterministic,
-//! requires the daemon). The deterministic `dispatch_tool` function IS unit-tested
-//! in `tests/chat_dispatch.rs`.
+//! The loop's control flow IS covered: `tests/chat_max_iterations.rs`,
+//! `tests/chat_completed.rs` and `tests/chat_transport_error.rs` drive it against
+//! a mock `/api/chat` rather than a live daemon, one test per binary because the
+//! handler reads `OLLAMA_URL` from the process environment. What remains
+//! uncovered is a real model's *choices* — which tools it picks and how it
+//! recovers — not the loop itself. The deterministic `dispatch_tool` executor is
+//! unit-tested in `tests/chat_dispatch.rs`.
 
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use chrono::{Local, NaiveDate};
@@ -24,6 +28,10 @@ use uuid::Uuid;
 /// `OL_CHAT_TIMEOUT_SECS`. Generous enough for a cold cloud model, finite so a
 /// hung backend cannot park the handler forever.
 const DEFAULT_CHAT_TIMEOUT_SECS: u64 = 120;
+
+/// Maximum tool-loop iterations in one chat turn. Exhausting it truncates the
+/// run, which the response reports as `finish_reason: max_iterations`.
+const CHAT_MAX_ITERATIONS: usize = 6;
 
 /// Ceiling on establishing the TCP/TLS connection. Short on purpose: an Ollama
 /// that is not listening should fail fast rather than consume the full budget.
@@ -46,6 +54,16 @@ pub struct ChatRequest {
     /// Conversation history for multi-turn context.
     #[serde(default)]
     pub history: Vec<ChatTurn>,
+    /// Stable identifier for this conversation, supplied by the client and kept
+    /// for the conversation's lifetime.
+    ///
+    /// It exists so tool idempotency keys can be derived rather than minted at
+    /// random (#86). When absent a fresh one is generated per request, which
+    /// still deduplicates a model's retries *within* this request — the live
+    /// double-post path — but cannot deduplicate across requests. There is no
+    /// server-side conversation store yet, so this is the only identity available.
+    #[serde(default)]
+    pub conversation_id: Option<Uuid>,
 }
 
 /// A single tool invocation with its result.
@@ -71,9 +89,77 @@ pub struct ChatResponse {
     pub actions: Vec<ChatAction>,
     #[serde(default)]
     pub view: Option<ViewDirective>,
+    /// Why the tool loop stopped. Anything other than `completed` means the run
+    /// did NOT finish, and `reply` says so rather than claiming success (#88).
+    pub finish_reason: FinishReason,
+}
+
+/// Why a chat run ended.
+///
+/// Before this existed, a run truncated by the iteration cap was reported with
+/// the canned text "I completed the requested operations." and a `200` — telling
+/// a user that an abandoned multi-step posting had succeeded. For an ERP that is
+/// the wrong failure direction: a user who believes an invoice was posted and
+/// moves on is worse off than one who sees an error (#88).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum FinishReason {
+    /// The model returned a final text answer.
+    #[default]
+    Completed,
+    /// The iteration cap was exhausted while the model was still calling tools.
+    MaxIterations,
+    /// The model's response could not be parsed.
+    ModelError,
+    /// Ollama could not be reached.
+    TransportError,
 }
 
 // ─── Tool executor ────────────────────────────────────────────────────────────
+
+/// Namespace for chat-derived idempotency keys. A fixed v5 namespace UUID —
+/// changing it re-keys every future derivation, so it must stay stable.
+const CHAT_IDEMPOTENCY_NAMESPACE: Uuid = Uuid::from_bytes([
+    0x6f, 0x2a, 0x1c, 0x4e, 0x9b, 0x3d, 0x47, 0x8a, 0xa1, 0x52, 0xc8, 0x0d, 0x33, 0x91, 0x7e, 0x64,
+]);
+
+/// Identity of the turn a tool call belongs to, used to derive idempotency keys.
+///
+/// The chat surface used to mint `Uuid::new_v4()` per post, so `UNIQUE (operation,
+/// idempotency_key)` could never engage and the AI path was the one path that
+/// could double-post (#86). Deriving the key instead makes a retry re-derive the
+/// same key, which the ledger then dedupes exactly as it does for REST and MCP.
+#[derive(Debug, Clone, Copy)]
+pub struct ToolContext {
+    /// Identifies the conversation. Client-supplied so it is stable across the
+    /// turns of one conversation; a fresh one per request when absent, which
+    /// degrades to "dedupe within this request only".
+    pub conversation_id: Uuid,
+    /// Which turn of the conversation this is. `history.len()` — it advances once
+    /// per user message, NOT once per tool-loop iteration.
+    pub turn: usize,
+}
+
+impl ToolContext {
+    /// Derive the idempotency key for one tool call.
+    ///
+    /// The three components are each load-bearing, and the tests below pin why:
+    ///
+    /// * `conversation_id` — separates two users doing the same thing.
+    /// * `turn` — lets a user deliberately repeat a post in a later turn. It is
+    ///   the TURN index, not the loop iteration: a model that re-issues the same
+    ///   call on a later iteration of the *same* turn (the live double-post path
+    ///   in #86, where it misreads a success as a failure) must re-derive the
+    ///   SAME key and dedupe.
+    /// * canonical args — two genuinely different posts in one turn must not
+    ///   collapse into one. `serde_json::Map` is a `BTreeMap` here (the
+    ///   `preserve_order` feature is off), so serialisation is key-sorted and
+    ///   stable.
+    pub fn idempotency_key(&self, tool: &str, args: &serde_json::Value) -> Uuid {
+        let material = format!("{}|{}|{}|{}", self.conversation_id, self.turn, tool, args);
+        Uuid::new_v5(&CHAT_IDEMPOTENCY_NAMESPACE, material.as_bytes())
+    }
+}
 
 /// Execute a named ledger tool deterministically.
 ///
@@ -84,6 +170,7 @@ pub async fn dispatch_tool(
     pool: &PgPool,
     name: &str,
     args: &serde_json::Value,
+    ctx: &ToolContext,
 ) -> Result<serde_json::Value, String> {
     match name {
         "get_account_balance" => {
@@ -158,7 +245,7 @@ pub async fn dispatch_tool(
             }
 
             let req = PostRequest {
-                idempotency_key: Uuid::new_v4(),
+                idempotency_key: ctx.idempotency_key("post_journal_entry", args),
                 journal_code,
                 entry_date,
                 effective_date: None,
@@ -221,10 +308,12 @@ pub async fn dispatch_tool(
             let resp = crate::receive_stock_core(
                 pool,
                 crate::ReceiveStockRequest {
+                    idempotency_key: ctx.idempotency_key("receive_stock", args),
                     sku,
                     location_code,
                     qty,
                     unit_cost,
+                    actor: "ai-chat".to_string(),
                 },
             )
             .await?;
@@ -723,8 +812,9 @@ struct OllamaToolFunction {
     path = "/chat",
     request_body = ChatRequest,
     responses(
-        (status = 200, description = "Assistant reply with any tool actions taken", body = ChatResponse),
-        (status = 503, description = "LLM backend unavailable", body = ChatResponse),
+        (status = 200, description = "Assistant reply with any tool actions taken. Check `finish_reason`: `max_iterations` means the run was truncated and did NOT finish", body = ChatResponse),
+        (status = 502, description = "The model returned a response that could not be parsed", body = ChatResponse),
+        (status = 503, description = "LLM backend unreachable", body = ChatResponse),
     )
 )]
 pub async fn chat(State(pool): State<PgPool>, Json(req): Json<ChatRequest>) -> impl IntoResponse {
@@ -763,17 +853,27 @@ pub async fn chat(State(pool): State<PgPool>, Json(req): Json<ChatRequest>) -> i
                     reply: format!("Could not construct the HTTP client: {e}"),
                     actions: Vec::new(),
                     view: None,
+                    finish_reason: FinishReason::TransportError,
                 }),
             )
                 .into_response();
         }
     };
+    // One identity per request. `turn` is history.len() so it advances per user
+    // message, not per loop iteration — see ToolContext::idempotency_key.
+    let tool_ctx = ToolContext {
+        conversation_id: req.conversation_id.unwrap_or_else(Uuid::new_v4),
+        turn: req.history.len(),
+    };
     let mut actions: Vec<ChatAction> = Vec::new();
     let mut reply = String::new();
     let mut view: Option<ViewDirective> = None;
+    // Only a final text answer from the model counts as completion. If the loop
+    // falls out of the bottom, the cap truncated a run that was still working.
+    let mut finish_reason = FinishReason::MaxIterations;
 
-    // Tool loop — max 6 iterations.
-    'outer: for _ in 0..6 {
+    // Tool loop — max CHAT_MAX_ITERATIONS iterations.
+    'outer: for _ in 0..CHAT_MAX_ITERATIONS {
         let ollama_req = OllamaRequest {
             model: &model_name,
             messages: &messages,
@@ -793,12 +893,16 @@ pub async fn chat(State(pool): State<PgPool>, Json(req): Json<ChatRequest>) -> i
                     "The AI assistant is currently offline (could not reach Ollama: {e}). \
                      Please start Ollama and try again."
                 );
+                // 503, not 200: the OpenAPI doc has always advertised this variant
+                // while the handler returned OK on every path (#88). Reconciled by
+                // making the behaviour match the published contract.
                 return (
-                    StatusCode::OK,
+                    StatusCode::SERVICE_UNAVAILABLE,
                     Json(ChatResponse {
                         reply,
                         actions,
                         view,
+                        finish_reason: FinishReason::TransportError,
                     }),
                 )
                     .into_response();
@@ -813,11 +917,12 @@ pub async fn chat(State(pool): State<PgPool>, Json(req): Json<ChatRequest>) -> i
                      Check that the model is loaded in Ollama."
                 );
                 return (
-                    StatusCode::OK,
+                    StatusCode::BAD_GATEWAY,
                     Json(ChatResponse {
                         reply,
                         actions,
                         view,
+                        finish_reason: FinishReason::ModelError,
                     }),
                 )
                     .into_response();
@@ -829,6 +934,7 @@ pub async fn chat(State(pool): State<PgPool>, Json(req): Json<ChatRequest>) -> i
         if msg.tool_calls.is_empty() {
             // Final text reply — done.
             reply = msg.content;
+            finish_reason = FinishReason::Completed;
             break 'outer;
         }
 
@@ -869,7 +975,7 @@ pub async fn chat(State(pool): State<PgPool>, Json(req): Json<ChatRequest>) -> i
                 other => other.clone(),
             };
 
-            let tool_result = dispatch_tool(&pool, &tc.function.name, &args).await;
+            let tool_result = dispatch_tool(&pool, &tc.function.name, &args, &tool_ctx).await;
 
             let (result_val, error_str, tool_content) = match &tool_result {
                 Ok(v) => (Some(v.clone()), None, v.to_string()),
@@ -901,16 +1007,33 @@ pub async fn chat(State(pool): State<PgPool>, Json(req): Json<ChatRequest>) -> i
     }
 
     if reply.is_empty() {
-        reply =
-            "I completed the requested operations. Check the actions list for details.".to_string();
+        // Never claim completion here. This branch is reached when the model
+        // produced no closing text — most often because the iteration cap cut a
+        // run short mid-sequence (#88). Say which, and say what did land, rather
+        // than asserting success for work that may have been abandoned.
+        reply = match finish_reason {
+            FinishReason::Completed => "The assistant finished without a closing message. \
+                 Check the actions list for what was done."
+                .to_string(),
+            _ => format!(
+                "I ran out of steps after {CHAT_MAX_ITERATIONS} tool calls and stopped before \
+                 finishing. {} action(s) were carried out and are listed below — review them \
+                 before retrying, because re-asking will run them again.",
+                actions.len()
+            ),
+        };
     }
 
+    // A truncated run is not a success. It is not a server fault either — the
+    // work that did land is real and reported — so it is 200 with an explicit
+    // finish_reason rather than an error status that would imply nothing happened.
     (
         StatusCode::OK,
         Json(ChatResponse {
             reply,
             actions,
             view,
+            finish_reason,
         }),
     )
         .into_response()
@@ -984,8 +1107,12 @@ mod tool_surface_tests {
         (
             "post_journal_entry",
             "idempotency_key",
-            "Required on MCP and REST, absent from the chat schema — the direct \
-             cause of #86: the chat path mints a random key and can double-post.",
+            "INTENTIONAL since the #86 fix: the chat schema deliberately does not \
+             expose this field, because the key is DERIVED server-side from \
+             (conversation, turn, tool, canonical args) via ToolContext. Exposing \
+             it would make deduplication depend on model behaviour, which is the \
+             thing #86 was about. MCP and REST callers are real clients and supply \
+             their own; the model is not a client in that sense.",
         ),
         (
             "post_journal_entry",
