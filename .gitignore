@@ -12,11 +12,5 @@
 .claude/
 .playwright-mcp/
 
-# Browser test artifacts (playwright session dumps)
-/ov.yml
-overview*.yml
-overview*.png
-console_errors.json
-
 # graphify build output — canonical home is ~/dev/Graphify/{Project}/{repo}/
 graphify-out/
