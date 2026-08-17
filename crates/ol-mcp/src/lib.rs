@@ -628,10 +628,24 @@ fn engine_error_to_string(e: ol_engine::EngineError) -> String {
     }
 }
 
+/// Build an [`ApiError`] for `code`, stripping a leading `"<CODE>: "` prefix from
+/// `message` if the underlying error source already supplied it. This keeps the
+/// final MCP string single-prefixed when a `PostError` variant's message already
+/// contains its code.
+fn api_error_for_post(code: ErrorCode, message: impl Into<String>) -> ApiError {
+    let message = message.into();
+    let prefix = format!("{code}: ");
+    let message = message
+        .strip_prefix(&prefix)
+        .map(ToOwned::to_owned)
+        .unwrap_or(message);
+    ApiError::new(code, message)
+}
+
 /// Map a [`PostError`] to a structured `"CODE: message"` string for MCP tool errors.
 fn post_error_to_string(e: PostError) -> String {
     let api_err = match &e {
-        PostError::Domain(d) => ApiError::new(ErrorCode::UnbalancedEntry, d.to_string()),
+        PostError::Domain(d) => api_error_for_post(ErrorCode::UnbalancedEntry, d.to_string()),
         PostError::AccountNotFound(c) => ApiError::new(
             ErrorCode::AccountNotFound,
             format!("account not found: {c}"),
@@ -641,12 +655,10 @@ fn post_error_to_string(e: PostError) -> String {
             format!("journal not found: {c}"),
         ),
         PostError::Unbalanced { message } => {
-            ApiError::new(ErrorCode::UnbalancedEntry, message.clone())
+            api_error_for_post(ErrorCode::UnbalancedEntry, message)
         }
-        PostError::AppendOnly { message } => ApiError::new(ErrorCode::AppendOnly, message.clone()),
-        PostError::PeriodClosed { message } => {
-            ApiError::new(ErrorCode::PeriodClosed, message.clone())
-        }
+        PostError::AppendOnly { message } => api_error_for_post(ErrorCode::AppendOnly, message),
+        PostError::PeriodClosed { message } => api_error_for_post(ErrorCode::PeriodClosed, message),
         PostError::PeriodOverlap { message } => {
             ApiError::new(ErrorCode::Validation, message.clone())
         }
@@ -790,5 +802,67 @@ mod tests {
         );
 
         assert_eq!(names.len(), 8, "unexpected extra tools: {names:?}");
+    }
+
+    /// GIVEN a `PostError::Unbalanced` whose DB message already contains the
+    /// `UNBALANCED_ENTRY: ` prefix,
+    /// WHEN it is converted to an MCP tool error string,
+    /// THEN the prefix is stripped once so the final string is exactly
+    /// `UNBALANCED_ENTRY: currency EUR debits 100 != credits 50`.
+    #[test]
+    fn post_error_unbalanced_strips_double_prefix() {
+        let db_message = "UNBALANCED_ENTRY: currency EUR debits 100 != credits 50".to_string();
+        let got = post_error_to_string(PostError::Unbalanced {
+            message: db_message,
+        });
+        assert_eq!(
+            got,
+            "UNBALANCED_ENTRY: currency EUR debits 100 != credits 50"
+        );
+    }
+
+    /// GIVEN a `PostError::Domain` carrying an `ol_domain::LedgerError`,
+    /// WHEN it is converted to an MCP tool error string,
+    /// THEN the final string is exactly the single-prefixed domain message.
+    #[test]
+    fn post_error_domain_strips_double_prefix() {
+        let err = ol_domain::LedgerError::Unbalanced {
+            currency: "EUR".into(),
+            debits: 100,
+            credits: 50,
+        };
+        let got = post_error_to_string(PostError::Domain(err));
+        assert_eq!(
+            got,
+            "UNBALANCED_ENTRY: currency EUR debits 100 != credits 50"
+        );
+    }
+
+    /// GIVEN a `PostError::AppendOnly` whose DB message already contains the
+    /// `APPEND_ONLY: ` prefix,
+    /// WHEN it is converted to an MCP tool error string,
+    /// THEN the prefix is stripped once so the final string is exactly
+    /// `APPEND_ONLY: journal entries are append-only`.
+    #[test]
+    fn post_error_append_only_strips_double_prefix() {
+        let db_message = "APPEND_ONLY: journal entries are append-only".to_string();
+        let got = post_error_to_string(PostError::AppendOnly {
+            message: db_message,
+        });
+        assert_eq!(got, "APPEND_ONLY: journal entries are append-only");
+    }
+
+    /// GIVEN a `PostError::PeriodClosed` whose DB message already contains the
+    /// `PERIOD_CLOSED: ` prefix,
+    /// WHEN it is converted to an MCP tool error string,
+    /// THEN the prefix is stripped once so the final string is exactly
+    /// `PERIOD_CLOSED: fiscal year 2024 is closed`.
+    #[test]
+    fn post_error_period_closed_strips_double_prefix() {
+        let db_message = "PERIOD_CLOSED: fiscal year 2024 is closed".to_string();
+        let got = post_error_to_string(PostError::PeriodClosed {
+            message: db_message,
+        });
+        assert_eq!(got, "PERIOD_CLOSED: fiscal year 2024 is closed");
     }
 }
