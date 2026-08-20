@@ -10,7 +10,6 @@
 
 use ol_domain::Line;
 use ol_ledger::{PostError, PostRequest, post_journal_entry};
-use serde_json;
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -22,12 +21,7 @@ fn line(code: &str, debit: i64, credit: i64) -> Line {
     Line::new(code, debit, credit)
 }
 
-fn req(
-    key: Uuid,
-    actor: &str,
-    memo: Option<&str>,
-    lines: Vec<Line>,
-) -> PostRequest {
+fn req(key: Uuid, actor: &str, memo: Option<&str>, lines: Vec<Line>) -> PostRequest {
     PostRequest {
         idempotency_key: key,
         journal_code: "GEN".into(),
@@ -46,10 +40,7 @@ async fn seed(pool: &PgPool) -> TestResult {
     )
     .execute(pool)
     .await?;
-    for (code, name, kind) in [
-        ("1000", "Cash", "asset"),
-        ("4000", "Sales", "income"),
-    ] {
+    for (code, name, kind) in [("1000", "Cash", "asset"), ("4000", "Sales", "income")] {
         sqlx::query(
             "INSERT INTO accounts (code, name, type) VALUES ($1, $2, $3::account_type) ON CONFLICT (code) DO NOTHING",
         )
@@ -102,7 +93,12 @@ async fn reused_key_different_payload_is_rejected(pool: PgPool) -> TestResult {
 
     let first = post_journal_entry(
         &pool,
-        &req(key, actor, Some("first"), vec![line("1000", 5_000, 0), line("4000", 0, 5_000)]),
+        &req(
+            key,
+            actor,
+            Some("first"),
+            vec![line("1000", 5_000, 0), line("4000", 0, 5_000)],
+        ),
     )
     .await?;
     assert!(!first.replayed);
@@ -128,8 +124,16 @@ async fn reused_key_different_payload_is_rejected(pool: PgPool) -> TestResult {
         "expected exact IDEMPOTENCY_KEY_REUSED-class error, got {err:?}"
     );
 
-    assert_eq!(entry_count(&pool).await, 1, "only the first entry may exist");
-    assert_eq!(idempotency_count(&pool, key).await, 1, "only one idempotency row");
+    assert_eq!(
+        entry_count(&pool).await,
+        1,
+        "only the first entry may exist"
+    );
+    assert_eq!(
+        idempotency_count(&pool, key).await,
+        1,
+        "only one idempotency row"
+    );
     Ok(())
 }
 
@@ -184,15 +188,22 @@ async fn reused_key_different_actor_is_rejected(pool: PgPool) -> TestResult {
         "expected exact IDEMPOTENCY_KEY_REUSED-class error, got {err:?}"
     );
 
-    assert_eq!(entry_count(&pool).await, 1, "only the first entry may exist");
+    assert_eq!(
+        entry_count(&pool).await,
+        1,
+        "only the first entry may exist"
+    );
 
-    let event_actors: Vec<String> = sqlx::query_scalar(
-        "SELECT actor FROM events WHERE capability = $1 ORDER BY created_at",
-    )
-    .bind(OPERATION)
-    .fetch_all(&pool)
-    .await?;
-    assert_eq!(event_actors, vec!["actor-a"], "second actor must leave no audit trail");
+    let event_actors: Vec<String> =
+        sqlx::query_scalar("SELECT actor FROM events WHERE capability = $1 ORDER BY created_at")
+            .bind(OPERATION)
+            .fetch_all(&pool)
+            .await?;
+    assert_eq!(
+        event_actors,
+        vec!["actor-a"],
+        "second actor must leave no audit trail"
+    );
     Ok(())
 }
 
@@ -222,7 +233,11 @@ async fn reused_key_none_vs_empty_memo_are_different(pool: PgPool) -> TestResult
         "expected exact IDEMPOTENCY_KEY_REUSED-class error, got {err:?}"
     );
 
-    assert_eq!(entry_count(&pool).await, 1, "only the first entry may exist");
+    assert_eq!(
+        entry_count(&pool).await,
+        1,
+        "only the first entry may exist"
+    );
     assert_eq!(idempotency_count(&pool, key).await, 1);
     Ok(())
 }
@@ -255,7 +270,12 @@ async fn legacy_null_request_hash_fails_closed(pool: PgPool) -> TestResult {
 
     let result = post_journal_entry(
         &pool,
-        &req(key, "actor-z", Some("anything"), vec![line("1000", 1_000, 0), line("4000", 0, 1_000)]),
+        &req(
+            key,
+            "actor-z",
+            Some("anything"),
+            vec![line("1000", 1_000, 0), line("4000", 0, 1_000)],
+        ),
     )
     .await;
 

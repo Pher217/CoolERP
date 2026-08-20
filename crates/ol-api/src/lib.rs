@@ -211,6 +211,11 @@ fn post_error_response(e: PostError) -> (StatusCode, Json<ErrorEnvelope>) {
             ErrorCode::SerializationFailure,
             format!("exhausted {attempts} retry attempts"),
         ),
+        PostError::IdempotencyKeyReused(message) => err_response(
+            StatusCode::CONFLICT,
+            ErrorCode::DuplicateIdempotencyKey,
+            message,
+        ),
         PostError::Db(inner) => err_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             ErrorCode::Internal,
@@ -543,6 +548,8 @@ pub async fn receive_stock_core(
     pool: &PgPool,
     body: ReceiveStockRequest,
 ) -> Result<ReceiveStockResponse, String> {
+    let request_hash = receive_request_hash(&body);
+
     let item_id: i64 = sqlx::query_scalar!("SELECT id FROM items WHERE sku = $1", body.sku)
         .fetch_optional(pool)
         .await
@@ -570,11 +577,12 @@ pub async fn receive_stock_core(
 
     // RETURNING 1 is Some(_) iff we inserted, i.e. we own this receipt.
     let claimed: Option<i32> = sqlx::query_scalar(
-        "INSERT INTO idempotency_keys (operation, idempotency_key) \
-         VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING 1",
+        "INSERT INTO idempotency_keys (operation, idempotency_key, request_hash) \
+         VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING 1",
     )
     .bind(RECEIVE_STOCK_OPERATION)
     .bind(body.idempotency_key)
+    .bind(&request_hash)
     .fetch_optional(&mut *tx)
     .await
     .map_err(|e| format!("database error: {e}"))?;
@@ -585,8 +593,8 @@ pub async fn receive_stock_core(
         // snapshot was taken, and a NULL result means the owner is still in
         // flight rather than that the receipt failed.
         let _ = tx.rollback().await;
-        let stored: Option<Option<serde_json::Value>> = sqlx::query_scalar(
-            "SELECT result FROM idempotency_keys WHERE operation = $1 AND idempotency_key = $2",
+        let stored: Option<(Option<String>, Option<serde_json::Value>)> = sqlx::query_as(
+            "SELECT request_hash, result FROM idempotency_keys WHERE operation = $1 AND idempotency_key = $2",
         )
         .bind(RECEIVE_STOCK_OPERATION)
         .bind(body.idempotency_key)
@@ -594,13 +602,20 @@ pub async fn receive_stock_core(
         .await
         .map_err(|e| format!("database error: {e}"))?;
 
-        return match stored.flatten() {
-            Some(json) => {
+        return match stored {
+            Some((Some(stored_hash), Some(json))) if stored_hash == request_hash => {
                 let mut result: ReceiveStockResponse = serde_json::from_value(json)
                     .map_err(|e| format!("could not decode stored receipt: {e}"))?;
                 result.replayed = true;
                 Ok(result)
             }
+            Some((Some(stored_hash), None)) if stored_hash == request_hash => {
+                Err("a receipt with this idempotency key is still in flight".to_string())
+            }
+            Some((Some(_), _)) | Some((None, _)) => Err(
+                "IDEMPOTENCY_KEY_REUSED: idempotency key already used with a different payload"
+                    .to_string(),
+            ),
             None => Err("a receipt with this idempotency key is still in flight".to_string()),
         };
     }
@@ -663,6 +678,38 @@ pub async fn receive_stock_core(
     Ok(response)
 }
 
+/// Canonical SHA-256 hash of a receive-stock request, for idempotency replay.
+///
+/// Includes `actor` and does not collapse `None`/`Some("")` on `unit_cost`,
+/// matching the Postgres storage of `NULL` and `''`.
+fn receive_request_hash(body: &ReceiveStockRequest) -> String {
+    #[derive(Serialize)]
+    struct CanonicalReceive {
+        v: &'static str,
+        op: &'static str,
+        key: String,
+        actor: String,
+        sku: String,
+        location_code: String,
+        qty: String,
+        unit_cost: Option<String>,
+    }
+
+    let canonical = CanonicalReceive {
+        v: "1",
+        op: RECEIVE_STOCK_OPERATION,
+        key: body.idempotency_key.to_string(),
+        actor: body.actor.clone(),
+        sku: body.sku.clone(),
+        location_code: body.location_code.clone(),
+        qty: body.qty.clone(),
+        unit_cost: body.unit_cost.clone(),
+    };
+
+    let bytes = serde_json::to_vec(&canonical).expect("canonical receive request serializes");
+    ol_ledger::sha256_hex(&bytes)
+}
+
 /// Stable hash of the receipt's economic content, for the audit trail.
 fn receipt_inputs_hash(body: &ReceiveStockRequest) -> String {
     use std::collections::hash_map::DefaultHasher;
@@ -698,7 +745,9 @@ pub async fn receive_stock(
         Ok(resp) if resp.replayed => (StatusCode::OK, Json(resp)).into_response(),
         Ok(resp) => (StatusCode::CREATED, Json(resp)).into_response(),
         Err(msg) => {
-            let (status, code) = if msg.contains("not found") {
+            let (status, code) = if msg.contains("IDEMPOTENCY_KEY_REUSED") {
+                (StatusCode::CONFLICT, ErrorCode::DuplicateIdempotencyKey)
+            } else if msg.contains("not found") {
                 (StatusCode::NOT_FOUND, ErrorCode::Validation)
             } else if msg.to_lowercase().contains("invalid input syntax")
                 || msg.to_lowercase().contains("numeric")
