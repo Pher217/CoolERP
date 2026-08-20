@@ -670,6 +670,9 @@ fn post_error_to_string(e: PostError) -> String {
             ErrorCode::SerializationFailure,
             format!("exhausted {n} retry attempts"),
         ),
+        PostError::IdempotencyKeyReused(message) => {
+            api_error_for_post(ErrorCode::DuplicateIdempotencyKey, message)
+        }
         PostError::Db(db) => ApiError::new(ErrorCode::Internal, db.to_string()),
     };
     api_err.to_string()

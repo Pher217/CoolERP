@@ -108,6 +108,9 @@ pub enum PostError {
     /// The named fiscal period does not exist.
     #[error("PERIOD_NOT_FOUND: {0}")]
     PeriodNotFound(String),
+    /// The idempotency key was already used for a different payload.
+    #[error("IDEMPOTENCY_KEY_REUSED: {0}")]
+    IdempotencyKeyReused(String),
     /// Retries exhausted on serialization failure / deadlock / in-flight race.
     #[error("SERIALIZATION_FAILURE: exhausted {0} attempts")]
     Serialization(u32),
@@ -153,6 +156,8 @@ pub async fn post_journal_entry(pool: &PgPool, req: &PostRequest) -> Result<Post
 /// One transactional attempt. Any serialization-class failure is mapped to
 /// [`Outcome::Retry`] (via [`PostError::Serialization`]) so the caller retries.
 async fn try_post(pool: &PgPool, req: &PostRequest) -> Result<Outcome, PostError> {
+    let request_hash = request_hash(req);
+
     let mut tx = pool.begin().await.map_err(classify)?;
 
     // ADR-005: REPEATABLE READ for a stable snapshot; row locks below serialize
@@ -165,11 +170,12 @@ async fn try_post(pool: &PgPool, req: &PostRequest) -> Result<Outcome, PostError
     // Layer 2: claim the idempotency key. RETURNING 1 is Some(_) iff we inserted
     // the row (i.e. we own this post); None means the key already exists.
     let claimed: Option<i32> = sqlx::query_scalar(
-        "INSERT INTO idempotency_keys (operation, idempotency_key) \
-         VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING 1",
+        "INSERT INTO idempotency_keys (operation, idempotency_key, request_hash) \
+         VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING 1",
     )
     .bind(OPERATION)
     .bind(req.idempotency_key)
+    .bind(&request_hash)
     .fetch_optional(&mut *tx)
     .await
     .map_err(classify)?;
@@ -188,8 +194,8 @@ async fn try_post(pool: &PgPool, req: &PostRequest) -> Result<Outcome, PostError
         // result; absence of a visible result means the owner is still in flight,
         // so we retry with backoff.
         let _ = tx.rollback().await;
-        let stored: Option<Option<serde_json::Value>> = sqlx::query_scalar(
-            "SELECT result FROM idempotency_keys WHERE operation = $1 AND idempotency_key = $2",
+        let stored: Option<(Option<String>, Option<serde_json::Value>)> = sqlx::query_as(
+            "SELECT request_hash, result FROM idempotency_keys WHERE operation = $1 AND idempotency_key = $2",
         )
         .bind(OPERATION)
         .bind(req.idempotency_key)
@@ -197,13 +203,21 @@ async fn try_post(pool: &PgPool, req: &PostRequest) -> Result<Outcome, PostError
         .await
         .map_err(classify)?;
 
-        return match stored.flatten() {
-            Some(json) => {
+        return match stored {
+            // Same payload as the stored request: replay the stored result.
+            Some((Some(stored_hash), Some(json))) if stored_hash == request_hash => {
                 let mut result: PostResult = serde_json::from_value(json)
                     .map_err(|e| PostError::Db(sqlx::Error::Decode(Box::new(e))))?;
                 result.replayed = true;
                 Ok(Outcome::Done(result))
             }
+            // Same payload, but the owner has not committed its result yet — retry.
+            Some((Some(stored_hash), None)) if stored_hash == request_hash => Ok(Outcome::Retry),
+            // Different payload, or a legacy row with no recorded hash: fail closed.
+            Some((Some(_), _)) | Some((None, _)) => Err(PostError::IdempotencyKeyReused(format!(
+                "idempotency key {} already used with a different payload",
+                req.idempotency_key
+            ))),
             // Owner still in flight (row not yet committed/visible) — retry.
             None => Ok(Outcome::Retry),
         };
@@ -422,6 +436,75 @@ fn inputs_hash(req: &PostRequest) -> String {
         let _ = write!(hex, "{byte:02x}");
     }
     hex
+}
+
+/// Canonical SHA-256 request hash for idempotency replay.
+///
+/// * Includes `actor` so a key reused under a different actor is rejected.
+/// * Does NOT collapse `None` and `Some("")` — they hash differently, matching
+///   the way Postgres stores `NULL` and `''` distinctly.
+/// * Sorts lines into a canonical order so reordering the same economic lines
+///   does not produce a different hash.
+/// * Versioned (`v: "1"`) so a future schema change can bump the format and
+///   fail closed on old stored hashes.
+fn request_hash(req: &PostRequest) -> String {
+    #[derive(Serialize)]
+    struct CanonicalLine {
+        code: String,
+        debit: i64,
+        credit: i64,
+        currency: String,
+    }
+
+    #[derive(Serialize)]
+    struct CanonicalRequest<'a> {
+        v: &'static str,
+        op: &'static str,
+        key: String,
+        actor: &'a str,
+        journal: &'a str,
+        date: String,
+        eff: Option<String>,
+        memo: Option<String>,
+        reference: Option<String>,
+        lines: Vec<CanonicalLine>,
+    }
+
+    let mut lines: Vec<CanonicalLine> = req
+        .lines
+        .iter()
+        .map(|l| CanonicalLine {
+            code: l.account_code.clone(),
+            debit: l.debit,
+            credit: l.credit,
+            currency: l.currency.clone(),
+        })
+        .collect();
+    lines.sort_by(|a, b| {
+        (&a.code, a.debit, a.credit, &a.currency).cmp(&(&b.code, b.debit, b.credit, &b.currency))
+    });
+
+    let canonical = CanonicalRequest {
+        v: "1",
+        op: OPERATION,
+        key: req.idempotency_key.to_string(),
+        actor: &req.actor,
+        journal: &req.journal_code,
+        date: req.entry_date.to_string(),
+        eff: req.effective_date.map(|d| d.to_string()),
+        memo: req.memo.clone(),
+        reference: req.reference.clone(),
+        lines,
+    };
+
+    let bytes = serde_json::to_vec(&canonical).expect("canonical request serializes");
+    sha256_hex(&bytes)
+}
+
+/// Stable SHA-256 hex digest of `bytes`.
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    format!("{digest:x}")
 }
 
 /// Map a serialization failure (`40001`) or deadlock (`40P01`) to a retryable
