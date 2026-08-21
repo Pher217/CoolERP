@@ -2,7 +2,7 @@ use argon2::{
     Argon2,
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
 };
-use rand::rngs::OsRng;
+use rand_core::OsRng;
 
 use crate::error::{AuthError, Result};
 

@@ -2,9 +2,9 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::SigningKey;
 use ed25519_dalek::pkcs8::EncodePrivateKey;
 use ed25519_dalek::pkcs8::spki::EncodePublicKey;
+use getrandom::{SysRng, rand_core::UnwrapErr};
 use jsonwebtoken::{DecodingKey, EncodingKey};
 use pkcs8::LineEnding;
-use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 
 use crate::error::{AuthError, Result};
@@ -22,7 +22,7 @@ pub struct SigningKeys {
 impl SigningKeys {
     /// Generate a fresh Ed25519 key pair using the OS random source.
     pub fn generate() -> Result<Self> {
-        let signing_key = SigningKey::generate(&mut OsRng);
+        let signing_key = SigningKey::generate(&mut UnwrapErr(SysRng));
         Self::from_dalek_key(&signing_key)
     }
 
@@ -65,7 +65,7 @@ impl SigningKeys {
     /// Generate a fresh key pair and also return the PEM strings so they can
     /// be persisted (e.g. to environment variables).
     pub fn generate_with_pems() -> Result<(Self, String, String)> {
-        let signing_key = SigningKey::generate(&mut OsRng);
+        let signing_key = SigningKey::generate(&mut UnwrapErr(SysRng));
         let private_pem = signing_key
             .to_pkcs8_pem(LineEnding::LF)
             .map_err(|e| AuthError::Key(e.to_string()))?
