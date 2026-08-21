@@ -14,7 +14,7 @@ pub mod reports;
 use axum::{
     Json,
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderValue, Method, StatusCode, header},
     response::IntoResponse,
     routing::get,
 };
@@ -28,6 +28,7 @@ use ol_process::Process;
 use ol_sdk::{ApiError, ErrorCode, ErrorEnvelope};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use utoipa::{OpenApi, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
@@ -63,10 +64,37 @@ pub fn app(pool: PgPool) -> axum::Router {
             "/api-docs/openapi.json",
             get(move || async move { Json(api) }),
         )
-        // Permissive CORS for local/dev (browser SPA on a different origin).
-        // Tighten to the known UI origin when the OAuth layer lands (ADR-006).
-        .layer(tower_http::cors::CorsLayer::permissive())
+        // Explicit CORS allowlist for the browser SPA. Defaults to the Vite dev
+        // origin; override with CORS_ALLOWED_ORIGINS (comma-separated).
+        .layer(cors_layer())
         .with_state(pool)
+}
+
+/// Default origin the Vite dev UI is served from.
+const DEFAULT_CORS_ORIGIN: &str = "http://localhost:5173";
+
+/// Build a CORS layer scoped to the configured origin allowlist.
+///
+/// Defaults to [`DEFAULT_CORS_ORIGIN`]. Override with `CORS_ALLOWED_ORIGINS` as a
+/// comma-separated list of origins. Invalid values panic on startup.
+fn cors_layer() -> CorsLayer {
+    let origins: Vec<HeaderValue> = std::env::var("CORS_ALLOWED_ORIGINS")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| {
+            s.split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(HeaderValue::from_str)
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .unwrap_or_else(|| Ok(vec![HeaderValue::from_static(DEFAULT_CORS_ORIGIN)]))
+        .expect("CORS_ALLOWED_ORIGINS contains invalid origin header values");
+
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::list(origins))
+        .allow_methods([Method::GET, Method::POST])
+        .allow_headers([header::CONTENT_TYPE, header::ACCEPT])
 }
 
 // ─── OpenAPI root doc ─────────────────────────────────────────────────────────
