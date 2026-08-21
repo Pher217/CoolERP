@@ -13,7 +13,10 @@ jsonwebtoken.workspace = true
 ed25519-dalek.workspace = true
 argon2.workspace = true
 base64.workspace = true
-rand.workspace = true
+# argon2/password-hash 0.5 takes rand_core 0.6's CryptoRngCore, a different generation from
+# the rand_core 0.10 that ed25519-dalek 3 uses. Each call site gets the RNG its crate expects.
+rand_core = { version = "0.6", features = ["getrandom"] }
+getrandom.workspace = true
 sha2.workspace = true
 serde.workspace = true
 serde_json.workspace = true
