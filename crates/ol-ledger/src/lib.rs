@@ -434,22 +434,33 @@ pub async fn account_balances_all(
 }
 
 /// SHA-256 of the canonical request inputs, hex-encoded, for the audit trail.
+///
+/// Boundary-unambiguous: every variable-length field is length-prefixed (u32 BE).
+/// Optional fields use u32::MAX as a sentinel for `None`, so `None` and `Some("")`
+/// produce different digests, matching Postgres `NULL` vs `''` storage.
 fn inputs_hash(req: &PostRequest) -> String {
     let mut hasher = Sha256::new();
-    hasher.update(req.idempotency_key.as_bytes());
-    hasher.update(req.journal_code.as_bytes());
-    hasher.update(req.entry_date.to_string().as_bytes());
-    if let Some(d) = req.effective_date {
-        hasher.update(d.to_string().as_bytes());
-    }
-    hasher.update(req.memo.as_deref().unwrap_or("").as_bytes());
-    hasher.update(req.reference.as_deref().unwrap_or("").as_bytes());
+
+    // Fixed-width fields: no prefix needed.
+    hasher.update(req.idempotency_key.as_bytes()); // 16 bytes
+    hasher.update(req.entry_date.to_string().as_bytes()); // "YYYY-MM-DD" = 10 bytes
+
+    // Variable-length fields: length-prefixed (u32 BE).
+    write_lp(&mut hasher, req.journal_code.as_bytes());
+    write_lp_opt(
+        &mut hasher,
+        req.effective_date.as_ref().map(|d| d.to_string()),
+    );
+    write_lp_opt(&mut hasher, req.memo.clone());
+    write_lp_opt(&mut hasher, req.reference.clone());
+
     for line in &req.lines {
-        hasher.update(line.account_code.as_bytes());
-        hasher.update(line.debit.to_le_bytes());
-        hasher.update(line.credit.to_le_bytes());
-        hasher.update(line.currency.as_bytes());
+        write_lp(&mut hasher, line.account_code.as_bytes());
+        hasher.update(line.debit.to_le_bytes()); // i64 = 8 bytes
+        hasher.update(line.credit.to_le_bytes()); // i64 = 8 bytes
+        write_lp(&mut hasher, line.currency.as_bytes());
     }
+
     let digest = hasher.finalize();
     let mut hex = String::with_capacity(digest.len() * 2);
     for byte in digest {
@@ -457,6 +468,20 @@ fn inputs_hash(req: &PostRequest) -> String {
         let _ = write!(hex, "{byte:02x}");
     }
     hex
+}
+
+/// Write a length-prefixed byte slice: u32 BE length followed by the bytes.
+fn write_lp(hasher: &mut Sha256, bytes: &[u8]) {
+    hasher.update((bytes.len() as u32).to_be_bytes());
+    hasher.update(bytes);
+}
+
+/// Write an optional string as length-prefixed: u32::MAX for `None`, else length + bytes.
+fn write_lp_opt(hasher: &mut Sha256, opt: Option<String>) {
+    match opt {
+        None => hasher.update(u32::MAX.to_be_bytes()),
+        Some(s) => write_lp(hasher, s.as_bytes()),
+    }
 }
 
 /// Canonical SHA-256 request hash for idempotency replay.
@@ -597,7 +622,7 @@ mod tests {
 
         assert_eq!(
             inputs_hash(&req),
-            "b845e02b6d47d8bfe7d4b499c0cdbf2c3a58672677aa1cb86432676722389361",
+            "45cbc692af3d75ce991b504d9985fd0f6e738d5f30dd5dbf032e957edf805d6a",
             "inputs_hash changed -- the persisted audit digest is not stable"
         );
     }
