@@ -176,8 +176,19 @@ impl Process {
         Ok(())
     }
 
+    /// Render the process as a Mermaid `stateDiagram-v2`.
+    ///
+    /// The diagram is generated from the YAML, never hand-drawn, so the human view of a process
+    /// cannot drift from what the engine enforces. Beyond the bare transitions it shows two things
+    /// a reader otherwise has to infer:
+    ///
+    /// * **Terminal states** — any state with no outgoing transition gets an explicit `--> [*]`,
+    ///   so "where does this end?" is answerable from the picture alone.
+    /// * **Which arrows move money** — a transition carrying a `posting_rule` is marked 💶. In an
+    ///   accounting engine that is the distinction that matters most, and it was previously
+    ///   visible only in prose beside the diagram.
     pub fn to_mermaid(&self, current_state: Option<&str>) -> String {
-        let mut lines = Vec::with_capacity(self.transitions.len() + 4);
+        let mut lines = Vec::with_capacity(self.transitions.len() + self.states.len() + 4);
 
         lines.push("stateDiagram-v2".to_string());
         lines.push(format!("    [*] --> {}", self.states[0]));
@@ -190,7 +201,27 @@ impl Process {
                 line.push_str(capability);
             }
 
+            if transition.posting_rule.is_some() {
+                // Marked in the diagram itself: a posting transition is the one that cannot be
+                // undone by editing a record — it writes to the append-only ledger.
+                line.push_str(if transition.capability.is_some() {
+                    " 💶"
+                } else {
+                    ": 💶"
+                });
+            }
+
             lines.push(line);
+        }
+
+        for state in &self.states {
+            let is_terminal = !self
+                .transitions
+                .iter()
+                .any(|transition| &transition.from == state);
+            if is_terminal {
+                lines.push(format!("    {state} --> [*]"));
+            }
         }
 
         if let Some(current_state) = current_state {
@@ -224,9 +255,17 @@ mod tests {
         let expected = [
             "stateDiagram-v2",
             "    [*] --> draft",
-            "    draft --> posted: post_invoice",
+            // 💶 marks a transition that carries a posting_rule in the YAML and therefore
+            // writes to the append-only ledger. Only post_invoice declares one here:
+            // register_payment declares none, and ol-engine posts only when a posting_rule
+            // exists (crates/ol-engine/src/lib.rs:469) — so it moves no money here at all.
+            // void_invoice moves none by design.
+            "    draft --> posted: post_invoice 💶",
             "    posted --> paid: register_payment",
             "    draft --> void: void_invoice",
+            // paid and void have no outgoing transition, so they are terminal.
+            "    paid --> [*]",
+            "    void --> [*]",
         ]
         .join("\n");
 

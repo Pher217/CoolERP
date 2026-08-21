@@ -61,10 +61,15 @@ The agent acts; the human watches, approves, and steps in — both over the same
 ```mermaid
 stateDiagram-v2
     [*] --> draft
-    draft --> posted: post_invoice
+    draft --> posted: post_invoice 💶
     posted --> paid: register_payment
     draft --> void: void_invoice
+    paid --> [*]
+    void --> [*]
 ```
+
+💶 marks a transition that writes to the append-only ledger; `--> [*]` marks a terminal state. Both
+are derived from the YAML, not annotated by hand.
 
 Each arrow is an MCP capability the agent calls — not a UI click — and each one carries the
 guards and posting rule from the same YAML, enforced again by a database trigger at commit:
@@ -72,7 +77,7 @@ guards and posting rule from the same YAML, enforced again by a database trigger
 | capability | guards | posts |
 |---|---|---|
 | `post_invoice` | `lines_nonempty`, `totals_balance` | DR `accounts_receivable` / CR `sales_revenue` + `tax_payable` |
-| `register_payment` | — | cash posting for the invoice's remaining balance |
+| `register_payment` | — | **none declared** — `customer_invoice.yaml` sets no `posting_rule`, and the engine posts only where one exists ([`ol-engine/src/lib.rs:469`](crates/ol-engine/src/lib.rs)), so this transition marks the invoice paid without clearing AR ([#110](https://github.com/Pher217/CoolERP/issues/110)) |
 | `void_invoice` | — | none — reachable only from `draft`, before money has moved |
 
 That diagram isn't hand-drawn — it's the literal output of [`Process::to_mermaid`](crates/ol-process/src/lib.rs),
