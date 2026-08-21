@@ -714,30 +714,64 @@ mod tests {
         tools.sort_by(|a, b| a.name.cmp(&b.name));
 
         // name -> sorted top-level property names of the tool's input schema.
-        let actual: Vec<(String, Vec<String>)> = tools
+        let actual: Vec<(String, Vec<String>, Vec<String>)> = tools
             .iter()
             .map(|t| {
-                let mut props: Vec<String> = t
+                // input properties
+                let mut input_props: Vec<String> = t
                     .input_schema
                     .get("properties")
                     .and_then(|p| p.as_object())
                     .map(|o| o.keys().cloned().collect())
                     .unwrap_or_default();
-                props.sort();
-                (t.name.to_string(), props)
+                input_props.sort();
+                // output properties
+                let mut output_props: Vec<String> = t
+                    .output_schema
+                    .as_ref()
+                    .and_then(|s| s.get("properties"))
+                    .and_then(|p| p.as_object())
+                    .map(|o| o.keys().cloned().collect())
+                    .unwrap_or_default();
+                output_props.sort();
+                (t.name.to_string(), input_props, output_props)
             })
             .collect();
 
-        let expected: Vec<(String, Vec<String>)> = vec![
+        let expected: Vec<(String, Vec<String>, Vec<String>)> = vec![
             (
                 "advance_process",
                 vec!["amounts", "capability", "context_patch", "instance_id"],
+                vec![
+                    "context",
+                    "current_state",
+                    "id",
+                    "process",
+                    "reference",
+                    "status",
+                ],
             ),
-            ("get_account_balance", vec!["account_code"]),
-            ("get_process", vec!["name"]),
-            ("get_process_instance", vec!["instance_id"]),
-            ("list_process_instances", vec!["process", "status"]),
-            ("list_processes", vec![]),
+            (
+                "get_account_balance",
+                vec!["account_code"],
+                vec!["account_code", "balance", "credits", "currency", "debits"],
+            ),
+            (
+                "get_process",
+                vec!["name"],
+                vec!["mermaid", "name", "states"],
+            ),
+            (
+                "get_process_instance",
+                vec!["instance_id"],
+                vec!["available", "instance", "steps"],
+            ),
+            (
+                "list_process_instances",
+                vec!["process", "status"],
+                vec!["instances"],
+            ),
+            ("list_processes", vec![], vec!["processes"]),
             (
                 "post_journal_entry",
                 vec![
@@ -750,11 +784,29 @@ mod tests {
                     "memo",
                     "reference",
                 ],
+                vec!["balanced", "entry_id", "replayed"],
             ),
-            ("start_process", vec!["context", "process", "reference"]),
+            (
+                "start_process",
+                vec!["context", "process", "reference"],
+                vec![
+                    "context",
+                    "current_state",
+                    "id",
+                    "process",
+                    "reference",
+                    "status",
+                ],
+            ),
         ]
         .into_iter()
-        .map(|(n, p)| (n.to_string(), p.into_iter().map(String::from).collect()))
+        .map(|(n, i, o)| {
+            (
+                n.to_string(),
+                i.into_iter().map(String::from).collect(),
+                o.into_iter().map(String::from).collect(),
+            )
+        })
         .collect();
 
         // NOTE, surfaced by writing this snapshot: `post_journal_entry` exposes
