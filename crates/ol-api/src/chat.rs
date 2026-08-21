@@ -15,7 +15,10 @@
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use chrono::{Local, NaiveDate};
 use ol_domain::Line;
-use ol_engine::{AdvanceInput, advance_instance, get_instance, list_instances, start_instance};
+use ol_engine::{
+    AdvanceInput, StartInstanceOutcome, advance_instance, get_instance, list_instances,
+    start_instance_with_key,
+};
 use ol_ledger::{PostError, PostRequest, account_balance, post_journal_entry};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -334,9 +337,15 @@ pub async fn dispatch_tool(
                 context
             };
 
-            let inst = start_instance(pool, &process, reference, context)
-                .await
-                .map_err(|e| e.to_string())?;
+            let StartInstanceOutcome { instance: inst, .. } = start_instance_with_key(
+                pool,
+                &process,
+                reference,
+                context,
+                ctx.idempotency_key("start_process", args),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
 
             serde_json::to_value(serde_json::json!({
                 "id": inst.id,
@@ -1119,6 +1128,16 @@ mod tool_surface_tests {
             "actor",
             "Required on MCP, absent from the chat schema, which hardcodes \
              actor=\"ai-chat\". Audit attribution differs by surface (#89).",
+        ),
+        (
+            "start_process",
+            "idempotency_key",
+            "INTENTIONAL since the #54 fix: the chat schema deliberately does not \
+             expose this field, because the key is DERIVED server-side from \
+             (conversation, turn, tool, canonical args) via ToolContext. Exposing \
+             it would make deduplication depend on model behaviour. MCP and REST \
+             callers are real clients and supply their own; the model is not a \
+             client in that sense.",
         ),
     ];
 

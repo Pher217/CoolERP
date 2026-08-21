@@ -66,7 +66,7 @@ pub struct AvailableTransition {
 }
 
 /// A snapshot of a process instance row.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Instance {
     pub id: i64,
     pub process: String,
@@ -74,6 +74,16 @@ pub struct Instance {
     pub status: String,
     pub reference: Option<String>,
     pub context: serde_json::Value,
+}
+
+/// Result of a successful [`start_instance`] or [`start_instance_with_key`] call.
+///
+/// `replayed` is true when the call reused an idempotency key that already
+/// owned an instance for the same canonical payload.
+#[derive(Debug, Clone)]
+pub struct StartInstanceOutcome {
+    pub instance: Instance,
+    pub replayed: bool,
 }
 
 /// Input for a single [`advance_instance`] call.
@@ -158,6 +168,10 @@ pub enum EngineError {
     /// should retry the full `advance_instance` call.
     #[error("concurrent advance conflict: another caller already advanced this instance")]
     ConcurrentAdvance,
+
+    /// The idempotency key was already used for a different payload.
+    #[error("IDEMPOTENCY_KEY_REUSED: {0}")]
+    IdempotencyKeyReused(String),
 
     #[error("ledger error: {0}")]
     Ledger(#[from] ol_ledger::PostError),
@@ -430,6 +444,76 @@ fn derive_idempotency_key(
     Uuid::new_v5(&Uuid::NAMESPACE_OID, s.as_bytes())
 }
 
+/// Operation name recorded in `idempotency_keys.operation` for instance starts.
+const START_INSTANCE_OPERATION: &str = "start_instance";
+
+/// Retries for transient idempotency-key races during instance starts.
+const MAX_ATTEMPTS: u32 = 10;
+
+/// Exponential backoff with attempt-derived jitter (no wall-clock / RNG needed).
+async fn backoff(attempt: u32) {
+    let base_ms = 2_u64.saturating_pow(attempt).min(256);
+    let jitter_ms = u64::from(attempt) * 3;
+    tokio::time::sleep(std::time::Duration::from_millis(base_ms + jitter_ms)).await;
+}
+
+/// Canonical SHA-256 request hash for starting an instance.
+///
+/// Includes the idempotency key itself, so reusing the key with a different
+/// payload produces a different hash and fails closed. The payload is the
+/// economically meaningful start input: process, reference, and context.
+fn start_instance_request_hash(
+    idempotency_key: Uuid,
+    process: &str,
+    reference: Option<&str>,
+    context: &Value,
+) -> String {
+    #[derive(Serialize)]
+    struct Canonical<'a> {
+        v: &'static str,
+        op: &'static str,
+        key: String,
+        process: &'a str,
+        reference: Option<&'a str>,
+        context: &'a Value,
+    }
+
+    let canonical = Canonical {
+        v: "1",
+        op: START_INSTANCE_OPERATION,
+        key: idempotency_key.to_string(),
+        process,
+        reference,
+        context,
+    };
+    let json = serde_json::to_string(&canonical)
+        .unwrap_or_else(|e| panic!("failed to canonicalise start_instance payload: {e}"));
+    ol_ledger::sha256_hex(json.as_bytes())
+}
+
+/// Deterministic idempotency key for callers that do not supply one.
+///
+/// The engine's own [`start_instance`] uses this so that calling it twice with
+/// the same payload is idempotent. REST callers that omit `idempotency_key`
+/// also use it.
+pub fn derive_start_instance_key(process: &str, reference: Option<&str>, context: &Value) -> Uuid {
+    #[derive(Serialize)]
+    struct Material<'a> {
+        process: &'a str,
+        reference: Option<&'a str>,
+        context: &'a Value,
+    }
+
+    let material = Material {
+        process,
+        reference,
+        context,
+    };
+    let json = serde_json::to_string(&material)
+        .unwrap_or_else(|e| panic!("failed to serialise start_instance key material: {e}"));
+    Uuid::new_v5(&Uuid::NAMESPACE_OID, json.as_bytes())
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -438,18 +522,126 @@ fn derive_idempotency_key(
 ///
 /// The `process_instances` INSERT and the initial `process_steps_log` INSERT
 /// are wrapped in a single transaction so neither is visible without the other.
+///
+/// Callers that need to know whether the call created a fresh instance or replayed
+/// an existing one should use [`start_instance_with_key`].
 pub async fn start_instance(
     pool: &PgPool,
     process: &str,
     reference: Option<String>,
     context: Value,
 ) -> Result<Instance, EngineError> {
+    let idempotency_key = derive_start_instance_key(process, reference.as_deref(), &context);
+    start_instance_with_key(pool, process, reference, context, idempotency_key)
+        .await
+        .map(|outcome| outcome.instance)
+}
+
+/// Start a new process instance with an explicit caller-supplied idempotency key.
+///
+/// Re-submitting the same `idempotency_key` with the same process, reference,
+/// and context returns the original instance (`replayed = true`). Reusing the
+/// key with a different payload returns [`EngineError::IdempotencyKeyReused`].
+pub async fn start_instance_with_key(
+    pool: &PgPool,
+    process: &str,
+    reference: Option<String>,
+    context: Value,
+    idempotency_key: Uuid,
+) -> Result<StartInstanceOutcome, EngineError> {
     let proc = load_process(process)?;
-    let initial = initial_state(&proc);
+    for attempt in 0..MAX_ATTEMPTS {
+        match try_start_instance(pool, process, &proc, &reference, &context, idempotency_key).await
+        {
+            Ok(StartOutcome::Done(outcome)) => return Ok(outcome),
+            Ok(StartOutcome::Retry) => {
+                backoff(attempt).await;
+                continue;
+            }
+            Err(EngineError::Db(e)) if is_serialization_error(&e) => {
+                backoff(attempt).await;
+                continue;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Err(EngineError::ConcurrentAdvance)
+}
+
+/// Result of one transactional start attempt.
+enum StartOutcome {
+    Done(StartInstanceOutcome),
+    Retry,
+}
+
+/// One transactional attempt to start an instance, with idempotency-key handling.
+async fn try_start_instance(
+    pool: &PgPool,
+    process: &str,
+    proc: &Process,
+    reference: &Option<String>,
+    context: &Value,
+    idempotency_key: Uuid,
+) -> Result<StartOutcome, EngineError> {
+    let request_hash =
+        start_instance_request_hash(idempotency_key, process, reference.as_deref(), context);
+    let initial = initial_state(proc);
 
     let mut tx = pool.begin().await?;
 
-    // Insert the instance inside the transaction.
+    // Claim the idempotency key. RETURNING 1 is Some(_) iff we inserted the row.
+    let claimed: Option<i32> = sqlx::query_scalar(
+        "INSERT INTO idempotency_keys (operation, idempotency_key, request_hash) \
+         VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING 1",
+    )
+    .bind(START_INSTANCE_OPERATION)
+    .bind(idempotency_key)
+    .bind(&request_hash)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    if claimed.is_none() {
+        // Key already exists: this is a replay. Read with a fresh snapshot, not
+        // inside the transaction whose REPEATABLE READ snapshot may predate the
+        // owning transaction's commit.
+        let _ = tx.rollback().await;
+        let stored: Option<(Option<String>, Option<serde_json::Value>)> = sqlx::query_as(
+            "SELECT request_hash, result FROM idempotency_keys \
+             WHERE operation = $1 AND idempotency_key = $2",
+        )
+        .bind(START_INSTANCE_OPERATION)
+        .bind(idempotency_key)
+        .fetch_optional(pool)
+        .await?;
+
+        return match stored {
+            // Same payload as the stored request: replay the stored instance.
+            Some((Some(stored_hash), Some(json))) if stored_hash == request_hash => {
+                let instance: Instance = serde_json::from_value(json)
+                    .map_err(|e| EngineError::Db(sqlx::Error::Decode(Box::new(e))))?;
+                Ok(StartOutcome::Done(StartInstanceOutcome {
+                    instance,
+                    replayed: true,
+                }))
+            }
+            // Same payload, but the owner has not committed its result yet — retry.
+            Some((Some(stored_hash), None)) if stored_hash == request_hash => {
+                Ok(StartOutcome::Retry)
+            }
+            // Different payload, or a legacy row with no recorded hash: fail closed.
+            Some((Some(_), _)) | Some((None, _)) => {
+                Err(EngineError::IdempotencyKeyReused(format!(
+                    "idempotency key {} already used with a different payload",
+                    idempotency_key
+                )))
+            }
+            // Owner still in flight — retry.
+            None => Ok(StartOutcome::Retry),
+        };
+    }
+
+    // We own this start. Create the instance and record the result in the same
+    // transaction so a replay never sees a row with a NULL result.
     let (id, current_state, status): (i64, String, String) = sqlx::query_as(
         "INSERT INTO process_instances (process, current_state, status, reference, context) \
          VALUES ($1, $2, 'active', $3, $4) \
@@ -457,12 +649,11 @@ pub async fn start_instance(
     )
     .bind(process)
     .bind(&initial)
-    .bind(&reference)
-    .bind(&context)
+    .bind(reference)
+    .bind(context)
     .fetch_one(&mut *tx)
     .await?;
 
-    // Append initial step log row inside the same transaction.
     sqlx::query(
         "INSERT INTO process_steps_log \
          (instance_id, from_state, to_state, capability, actor, entry_id, payload) \
@@ -473,16 +664,42 @@ pub async fn start_instance(
     .execute(&mut *tx)
     .await?;
 
-    tx.commit().await?;
-
-    Ok(row_to_instance(
+    let instance = row_to_instance(
         id,
         process.to_string(),
         current_state,
         status,
-        reference,
-        context,
-    ))
+        reference.clone(),
+        context.clone(),
+    );
+    let instance_json = serde_json::to_value(&instance)
+        .map_err(|e| EngineError::Db(sqlx::Error::Encode(Box::new(e))))?;
+
+    sqlx::query(
+        "UPDATE idempotency_keys SET result = $3 \
+         WHERE operation = $1 AND idempotency_key = $2",
+    )
+    .bind(START_INSTANCE_OPERATION)
+    .bind(idempotency_key)
+    .bind(instance_json)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(StartOutcome::Done(StartInstanceOutcome {
+        instance,
+        replayed: false,
+    }))
+}
+
+/// True for serialization-class failures that merit a retry.
+fn is_serialization_error(e: &sqlx::Error) -> bool {
+    matches!(
+        e,
+        sqlx::Error::Database(db)
+            if db.code().as_deref() == Some("40001") || db.code().as_deref() == Some("40P01")
+    )
 }
 
 /// Advance a process instance by one state transition.
