@@ -696,118 +696,680 @@ impl ServerHandler for LedgerHandler {
 mod tests {
     use super::*;
 
+    const INPUT_ADVANCE_PROCESS: &str = r##"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "amounts": {
+      "additionalProperties": {
+        "format": "int64",
+        "type": "integer"
+      },
+      "default": {},
+      "description": "Integer-cents amounts for posting steps. Include exactly the keys listed in\n`posting.required_amount_keys` (one key per credited role when there is more\nthan one credit role, plus the key 'amount' = the debit total).\nNon-posting steps need no amounts.",
+      "type": "object"
+    },
+    "capability": {
+      "description": "Capability (transition label) to execute, e.g. \"confirm_order\".",
+      "type": "string"
+    },
+    "context_patch": {
+      "description": "JSON object merged into the instance context (shallow merge)."
+    },
+    "instance_id": {
+      "description": "Instance id returned by `start_process`.",
+      "format": "int64",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "instance_id",
+    "capability"
+  ],
+  "type": "object"
+}"##;
+    const INPUT_GET_ACCOUNT_BALANCE: &str = r##"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "account_code": {
+      "description": "Account code (e.g. \"1000\").",
+      "type": "string"
+    }
+  },
+  "required": [
+    "account_code"
+  ],
+  "type": "object"
+}"##;
+    const INPUT_GET_PROCESS: &str = r##"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "name": {
+      "description": "Process name as it appears in the YAML `process:` field (e.g. \"customer_invoice\").",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "type": "object"
+}"##;
+    const INPUT_GET_PROCESS_INSTANCE: &str = r##"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "instance_id": {
+      "description": "Instance id.",
+      "format": "int64",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "instance_id"
+  ],
+  "type": "object"
+}"##;
+    const INPUT_LIST_PROCESS_INSTANCES: &str = r##"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "process": {
+      "description": "Filter by process name, e.g. \"order_to_cash\".",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "description": "Filter by status: \"active\", \"completed\", or \"cancelled\".",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "type": "object"
+}"##;
+    const INPUT_LIST_PROCESSES: &str = r##"{
+  "properties": {},
+  "type": "object"
+}"##;
+    const INPUT_POST_JOURNAL_ENTRY: &str = r##"{
+  "$defs": {
+    "LineParam": {
+      "description": "A single journal line for a `post_journal_entry` call.",
+      "properties": {
+        "account_code": {
+          "description": "Account code (e.g. \"1000\").",
+          "type": "string"
+        },
+        "credit": {
+          "description": "Credit amount in integer cents. Exactly one of debit/credit must be non-zero.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "currency": {
+          "description": "ISO-4217 currency code (e.g. \"EUR\", \"USD\"). Defaults to \"EUR\" when absent.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "debit": {
+          "description": "Debit amount in integer cents. Exactly one of debit/credit must be non-zero.",
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "account_code",
+        "debit",
+        "credit"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "actor": {
+      "description": "Actor identifier recorded in the audit log (e.g. the MCP token subject).",
+      "type": "string"
+    },
+    "effective_date": {
+      "description": "Economic date determining the fiscal period (YYYY-MM-DD). Defaults to entry_date when absent.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "entry_date": {
+      "description": "ISO date of the entry (YYYY-MM-DD).",
+      "type": "string"
+    },
+    "idempotency_key": {
+      "description": "UUID idempotency key — reuse the same key to replay without double-posting.",
+      "format": "uuid",
+      "type": "string"
+    },
+    "journal_code": {
+      "description": "Journal code (e.g. \"GJ\" for General Journal).",
+      "type": "string"
+    },
+    "lines": {
+      "description": "Entry lines — minimum 2, balanced (Σdebit = Σcredit).",
+      "items": {
+        "$ref": "#/$defs/LineParam"
+      },
+      "type": "array"
+    },
+    "memo": {
+      "description": "Optional memo / narrative.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "reference": {
+      "description": "Optional external reference (invoice number, etc.).",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "idempotency_key",
+    "journal_code",
+    "entry_date",
+    "actor",
+    "lines"
+  ],
+  "type": "object"
+}"##;
+    const INPUT_START_PROCESS: &str = r##"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "context": {
+      "description": "Optional initial context as a JSON object."
+    },
+    "process": {
+      "description": "Process name, e.g. \"order_to_cash\".",
+      "type": "string"
+    },
+    "reference": {
+      "description": "Optional external reference (order number, customer id, etc.).",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "process"
+  ],
+  "type": "object"
+}"##;
+    const OUTPUT_PROCESS_INSTANCE: &str = r##"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "context": true,
+    "current_state": {
+      "type": "string"
+    },
+    "id": {
+      "format": "int64",
+      "type": "integer"
+    },
+    "process": {
+      "type": "string"
+    },
+    "reference": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "process",
+    "current_state",
+    "status",
+    "context"
+  ],
+  "type": "object"
+}"##;
+    const OUTPUT_GET_ACCOUNT_BALANCE: &str = r##"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "account_code": {
+      "type": "string"
+    },
+    "balance": {
+      "description": "Signed balance in integer cents (debit-positive for assets/expenses;\ncredit-positive for liabilities/equity/income).",
+      "format": "int64",
+      "type": "integer"
+    },
+    "credits": {
+      "description": "Raw credit sum (integer cents).",
+      "format": "int64",
+      "type": "integer"
+    },
+    "currency": {
+      "description": "ISO-4217 currency code (e.g. \"EUR\").",
+      "type": "string"
+    },
+    "debits": {
+      "description": "Raw debit sum (integer cents).",
+      "format": "int64",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "account_code",
+    "currency",
+    "debits",
+    "credits",
+    "balance"
+  ],
+  "type": "object"
+}"##;
+    const OUTPUT_GET_PROCESS: &str = r##"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "mermaid": {
+      "description": "Mermaid `stateDiagram-v2` diagram of this process.",
+      "type": "string"
+    },
+    "name": {
+      "type": "string"
+    },
+    "states": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "name",
+    "states",
+    "mermaid"
+  ],
+  "type": "object"
+}"##;
+    const OUTPUT_GET_PROCESS_INSTANCE: &str = r##"{
+  "$defs": {
+    "AvailableTransitionResult": {
+      "description": "One legal next move from the instance's current state.",
+      "properties": {
+        "capability": {
+          "description": "Pass this capability name to `advance_process`.",
+          "type": "string"
+        },
+        "posting": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PostingRequirementResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`Some` when posting amounts are required; `None` for non-posting transitions."
+        },
+        "to_state": {
+          "description": "State the instance will enter when this transition fires.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "capability",
+        "to_state"
+      ],
+      "type": "object"
+    },
+    "PostingRequirementResult": {
+      "description": "Posting amounts required by an available transition.\n\n`required_amount_keys` lists exactly the keys the caller must supply in the\n`amounts` map. The `credit_roles` field describes every account role this\ntransition credits and is always populated.",
+      "properties": {
+        "credit_roles": {
+          "description": "Every account role this transition credits, always populated.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "debit_role": {
+          "description": "The debit role name (informational; the caller uses key `\"amount\"`).",
+          "type": "string"
+        },
+        "required_amount_keys": {
+          "description": "Exactly the keys the caller must supply in `amounts`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "debit_role",
+        "credit_roles",
+        "required_amount_keys"
+      ],
+      "type": "object"
+    },
+    "ProcessInstanceResult": {
+      "description": "A process instance snapshot.",
+      "properties": {
+        "context": true,
+        "current_state": {
+          "type": "string"
+        },
+        "id": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "process": {
+          "type": "string"
+        },
+        "reference": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "process",
+        "current_state",
+        "status",
+        "context"
+      ],
+      "type": "object"
+    },
+    "StepLogResult": {
+      "description": "One step-log row.",
+      "properties": {
+        "actor": {
+          "type": "string"
+        },
+        "capability": {
+          "type": "string"
+        },
+        "entry_id": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "from_state": {
+          "type": "string"
+        },
+        "id": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "to_state": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "from_state",
+        "to_state",
+        "capability",
+        "actor"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "available": {
+      "description": "Legal next capabilities from the current state.  Empty for terminal states.",
+      "items": {
+        "$ref": "#/$defs/AvailableTransitionResult"
+      },
+      "type": "array"
+    },
+    "instance": {
+      "$ref": "#/$defs/ProcessInstanceResult"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/StepLogResult"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "instance",
+    "steps",
+    "available"
+  ],
+  "type": "object"
+}"##;
+    const OUTPUT_LIST_PROCESS_INSTANCES: &str = r##"{
+  "$defs": {
+    "ProcessInstanceResult": {
+      "description": "A process instance snapshot.",
+      "properties": {
+        "context": true,
+        "current_state": {
+          "type": "string"
+        },
+        "id": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "process": {
+          "type": "string"
+        },
+        "reference": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "process",
+        "current_state",
+        "status",
+        "context"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "instances": {
+      "items": {
+        "$ref": "#/$defs/ProcessInstanceResult"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "instances"
+  ],
+  "type": "object"
+}"##;
+    const OUTPUT_LIST_PROCESSES: &str = r##"{
+  "$defs": {
+    "ProcessSummary": {
+      "description": "A single process entry returned by `list_processes`.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "states": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "states"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "processes": {
+      "items": {
+        "$ref": "#/$defs/ProcessSummary"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "processes"
+  ],
+  "type": "object"
+}"##;
+    const OUTPUT_POST_JOURNAL_ENTRY: &str = r##"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "balanced": {
+      "type": "boolean"
+    },
+    "entry_id": {
+      "format": "int64",
+      "type": "integer"
+    },
+    "replayed": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "entry_id",
+    "balanced",
+    "replayed"
+  ],
+  "type": "object"
+}"##;
+
+    /// Recursively rewrite a JSON value so every object's keys appear in sorted
+    /// order, returning a canonical pretty-printed string. This decouples the
+    /// snapshot from any incidental map ordering (`schemars`/`serde_json`
+    /// insertion order) so the pinned text only changes when the schema's actual
+    /// content changes. Both the live schema and the pinned literal are run
+    /// through this before comparison, so the match is on canonical form rather
+    /// than on a particular byte serialisation of the same schema.
+    fn canonical(v: &Value) -> String {
+        fn sort(v: &Value) -> Value {
+            match v {
+                Value::Object(map) => {
+                    let mut keys: Vec<&String> = map.keys().collect();
+                    keys.sort();
+                    let mut out = serde_json::Map::new();
+                    for k in keys {
+                        out.insert(k.clone(), sort(map.get(k).unwrap()));
+                    }
+                    Value::Object(out)
+                }
+                Value::Array(items) => Value::Array(items.iter().map(sort).collect()),
+                other => other.clone(),
+            }
+        }
+        serde_json::to_string_pretty(&sort(v)).unwrap()
+    }
+
     /// GIVEN the tool router,
     /// WHEN the advertised tool contract is serialised,
-    /// THEN every tool name and the full shape of its inputSchema match a
-    /// pinned snapshot.
+    /// THEN every tool name and the *complete* JSON of its inputSchema and
+    /// outputSchema (types, `required`, nullability, `$defs`, nested shapes --
+    /// not just the property-name set) match a pinned snapshot.
     ///
     /// This is the contract an MCP client actually consumes. The name-only test
-    /// below cannot see a changed inputSchema, so a bump to `rmcp` or to
-    /// `schemars` (which generates these schemas) could silently reshape the
-    /// public tool surface while CI stayed green. This test makes such a change
-    /// visible. If it fails after a dependency bump, diff the printed schema and
-    /// decide deliberately -- do not just re-pin it.
+    /// below cannot see a reshaped schema, so a bump to `rmcp` or to `schemars`
+    /// (which generates these schemas) could silently change the public tool
+    /// surface -- a renamed nested field, a flipped type (`i64` -> `f64`), a
+    /// newly-required property -- while CI stayed green. This test pins the full
+    /// schema JSON so any such change fails it. If it fails after a dependency
+    /// bump, diff the printed schema and decide deliberately -- do not just
+    /// re-pin it.
     #[test]
     fn tool_schemas_match_snapshot() {
         let router = LedgerHandler::tool_router();
         let mut tools = router.list_all();
         tools.sort_by(|a, b| a.name.cmp(&b.name));
 
-        // name -> sorted top-level property names of the tool's input schema.
-        let actual: Vec<(String, Vec<String>, Vec<String>)> = tools
+        // name -> (canonical input schema JSON, canonical output schema JSON).
+        let actual: Vec<(String, String, String)> = tools
             .iter()
             .map(|t| {
-                // input properties
-                let mut input_props: Vec<String> = t
-                    .input_schema
-                    .get("properties")
-                    .and_then(|p| p.as_object())
-                    .map(|o| o.keys().cloned().collect())
-                    .unwrap_or_default();
-                input_props.sort();
-                // output properties
-                let mut output_props: Vec<String> = t
+                let input = canonical(&Value::Object(t.input_schema.as_ref().clone()));
+                let output = t
                     .output_schema
                     .as_ref()
-                    .and_then(|s| s.get("properties"))
-                    .and_then(|p| p.as_object())
-                    .map(|o| o.keys().cloned().collect())
+                    .map(|s| canonical(&Value::Object(s.as_ref().clone())))
                     .unwrap_or_default();
-                output_props.sort();
-                (t.name.to_string(), input_props, output_props)
+                (t.name.to_string(), input, output)
             })
             .collect();
 
-        let expected: Vec<(String, Vec<String>, Vec<String>)> = vec![
+        // The pinned literals are parsed and re-canonicalised, so the snapshot
+        // is matched on canonical form -- resilient to incidental serialisation
+        // differences but still sensitive to any content change (type,
+        // `required`, nullability, `$defs`, nested renames).
+        let pin = |s: &str| canonical(&serde_json::from_str::<Value>(s).unwrap());
+
+        let expected: Vec<(&str, String, String)> = vec![
             (
                 "advance_process",
-                vec!["amounts", "capability", "context_patch", "instance_id"],
-                vec![
-                    "context",
-                    "current_state",
-                    "id",
-                    "process",
-                    "reference",
-                    "status",
-                ],
+                pin(INPUT_ADVANCE_PROCESS),
+                pin(OUTPUT_PROCESS_INSTANCE),
             ),
             (
                 "get_account_balance",
-                vec!["account_code"],
-                vec!["account_code", "balance", "credits", "currency", "debits"],
+                pin(INPUT_GET_ACCOUNT_BALANCE),
+                pin(OUTPUT_GET_ACCOUNT_BALANCE),
             ),
             (
                 "get_process",
-                vec!["name"],
-                vec!["mermaid", "name", "states"],
+                pin(INPUT_GET_PROCESS),
+                pin(OUTPUT_GET_PROCESS),
             ),
             (
                 "get_process_instance",
-                vec!["instance_id"],
-                vec!["available", "instance", "steps"],
+                pin(INPUT_GET_PROCESS_INSTANCE),
+                pin(OUTPUT_GET_PROCESS_INSTANCE),
             ),
             (
                 "list_process_instances",
-                vec!["process", "status"],
-                vec!["instances"],
+                pin(INPUT_LIST_PROCESS_INSTANCES),
+                pin(OUTPUT_LIST_PROCESS_INSTANCES),
             ),
-            ("list_processes", vec![], vec!["processes"]),
+            (
+                "list_processes",
+                pin(INPUT_LIST_PROCESSES),
+                pin(OUTPUT_LIST_PROCESSES),
+            ),
             (
                 "post_journal_entry",
-                vec![
-                    "actor",
-                    "effective_date",
-                    "entry_date",
-                    "idempotency_key",
-                    "journal_code",
-                    "lines",
-                    "memo",
-                    "reference",
-                ],
-                vec!["balanced", "entry_id", "replayed"],
+                pin(INPUT_POST_JOURNAL_ENTRY),
+                pin(OUTPUT_POST_JOURNAL_ENTRY),
             ),
             (
                 "start_process",
-                vec!["context", "process", "reference"],
-                vec![
-                    "context",
-                    "current_state",
-                    "id",
-                    "process",
-                    "reference",
-                    "status",
-                ],
+                pin(INPUT_START_PROCESS),
+                pin(OUTPUT_PROCESS_INSTANCE),
             ),
-        ]
-        .into_iter()
-        .map(|(n, i, o)| {
-            (
-                n.to_string(),
-                i.into_iter().map(String::from).collect(),
-                o.into_iter().map(String::from).collect(),
-            )
-        })
-        .collect();
+        ];
 
         // NOTE, surfaced by writing this snapshot: `post_journal_entry` exposes
         // `idempotency_key`, but the two state-changing process tools
@@ -817,9 +1379,23 @@ mod tests {
         // so the key itself does not dedupe a retry), but `start_process` has no
         // idempotency at all and a retried call creates a duplicate instance.
         // This test only pins the contract as it stands.
+        for (a, e) in actual.iter().zip(expected.iter()) {
+            assert_eq!(a.0, e.0, "tool name mismatch");
+            assert_eq!(
+                a.1, e.1,
+                "inputSchema for `{}` changed -- an MCP client would see this",
+                e.0
+            );
+            assert_eq!(
+                a.2, e.2,
+                "outputSchema for `{}` changed -- an MCP client would see this",
+                e.0
+            );
+        }
         assert_eq!(
-            actual, expected,
-            "the advertised MCP tool contract changed -- an MCP client would see this"
+            actual.len(),
+            expected.len(),
+            "tool count changed -- an MCP client would see this"
         );
     }
 
