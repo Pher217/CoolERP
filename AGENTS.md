@@ -20,7 +20,7 @@ cargo deny check
 - **Money is integer cents (`i64` / `BIGINT`). Never floats.**
 - **The ledger is append-only.** No `UPDATE`/`DELETE` on `journal_entries`, `journal_lines`, `events`. Corrections are reversing entries.
 - **Every entry balances** (≥2 lines, Σdebit = Σcredit) — enforced by a DB trigger. Don't move this check into application code only.
-- **Ledger posting and inventory receipt are idempotent** via a client `idempotency_key` + a canonical request hash + `UNIQUE (operation, idempotency_key)`. `start_process` is not yet ([#54](https://github.com/Pher217/CoolERP/issues/54)); `advance_process`'s key is server-derived and does not dedupe a retry.
+- **Ledger posting, inventory receipt and starting a process instance are idempotent** via a client `idempotency_key` + a canonical request hash + `UNIQUE (operation, idempotency_key)`. `advance_process`'s key is server-derived and does not dedupe a retry — a retried advance is caught only incidentally by the illegal-transition guard.
 - **No raw-SQL / `execute` MCP tool.** Capabilities are discrete and typed.
 - **Posting path:** REPEATABLE READ + `SELECT … FOR UPDATE`, retry on SQLSTATE `40001`.
 - Property-test the double-entry invariant hard before any release.
