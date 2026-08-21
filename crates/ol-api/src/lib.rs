@@ -858,6 +858,10 @@ pub struct GetInstanceResponse {
 pub struct StartInstanceRequest {
     /// Process name, e.g. "order_to_cash".
     pub process: String,
+    /// UUID idempotency key — reuse the same key to replay without creating a
+    /// duplicate instance. If omitted, a deterministic key is derived from the
+    /// payload so identical calls are still idempotent.
+    pub idempotency_key: Option<Uuid>,
     /// Optional external reference (order number, customer id, etc.).
     pub reference: Option<String>,
     /// Initial context as a JSON object. Defaults to `{}`.
@@ -924,6 +928,11 @@ fn engine_error_response(e: EngineError) -> (StatusCode, Json<ErrorEnvelope>) {
             ErrorCode::SerializationFailure,
             "concurrent advance conflict: another caller already advanced this instance",
         ),
+        EngineError::IdempotencyKeyReused(msg) => err_response(
+            StatusCode::CONFLICT,
+            ErrorCode::DuplicateIdempotencyKey,
+            msg,
+        ),
         EngineError::UnknownRole(role) => err_response(
             StatusCode::UNPROCESSABLE_ENTITY,
             ErrorCode::Validation,
@@ -981,7 +990,9 @@ fn engine_error_response(e: EngineError) -> (StatusCode, Json<ErrorEnvelope>) {
     request_body = StartInstanceRequest,
     responses(
         (status = 201, description = "Instance created", body = InstanceResponse),
+        (status = 200, description = "Instance replayed from idempotency key", body = InstanceResponse),
         (status = 404, description = "Process not found", body = ErrorBody),
+        (status = 409, description = "Idempotency key reused with a different payload", body = ErrorBody),
         (status = 500, description = "Database or IO error", body = ErrorBody),
     )
 )]
@@ -989,8 +1000,31 @@ pub async fn start_instance(
     State(pool): State<PgPool>,
     Json(body): Json<StartInstanceRequest>,
 ) -> impl IntoResponse {
-    match ol_engine::start_instance(&pool, &body.process, body.reference, body.context).await {
-        Ok(inst) => (StatusCode::CREATED, Json(InstanceResponse::from(inst))).into_response(),
+    let idempotency_key = body.idempotency_key.unwrap_or_else(|| {
+        ol_engine::derive_start_instance_key(
+            &body.process,
+            body.reference.as_deref(),
+            &body.context,
+        )
+    });
+
+    match ol_engine::start_instance_with_key(
+        &pool,
+        &body.process,
+        body.reference,
+        body.context,
+        idempotency_key,
+    )
+    .await
+    {
+        Ok(outcome) => {
+            let status = if outcome.replayed {
+                StatusCode::OK
+            } else {
+                StatusCode::CREATED
+            };
+            (status, Json(InstanceResponse::from(outcome.instance))).into_response()
+        }
         Err(e) => engine_error_response(e).into_response(),
     }
 }

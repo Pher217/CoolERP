@@ -83,6 +83,9 @@ pub struct GetProcessParams {
 /// Parameters for `start_process`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct StartProcessParams {
+    /// UUID idempotency key — reuse the same key to replay without creating a
+    /// duplicate instance.
+    pub idempotency_key: Uuid,
     /// Process name, e.g. "order_to_cash".
     pub process: String,
     /// Optional external reference (order number, customer id, etc.).
@@ -438,10 +441,16 @@ impl LedgerHandler {
             .context
             .unwrap_or_else(|| Value::Object(Default::default()));
 
-        ol_engine::start_instance(&self.pool, &params.process, params.reference, context)
-            .await
-            .map(|inst| Json(ProcessInstanceResult::from(inst)))
-            .map_err(engine_error_to_string)
+        ol_engine::start_instance_with_key(
+            &self.pool,
+            &params.process,
+            params.reference,
+            context,
+            params.idempotency_key,
+        )
+        .await
+        .map(|outcome| Json(ProcessInstanceResult::from(outcome.instance)))
+        .map_err(engine_error_to_string)
     }
 
     /// Advance a process instance by one transition.
@@ -624,6 +633,9 @@ fn engine_error_to_string(e: ol_engine::EngineError) -> String {
         }
         ol_engine::EngineError::ProcessLoad(msg) => {
             ApiError::new(ErrorCode::Internal, format!("process load error: {msg}")).to_string()
+        }
+        ol_engine::EngineError::IdempotencyKeyReused(msg) => {
+            ApiError::new(ErrorCode::DuplicateIdempotencyKey, msg).to_string()
         }
     }
 }
@@ -889,6 +901,11 @@ mod tests {
     "context": {
       "description": "Optional initial context as a JSON object."
     },
+    "idempotency_key": {
+      "description": "UUID idempotency key — reuse the same key to replay without creating a\nduplicate instance.",
+      "format": "uuid",
+      "type": "string"
+    },
     "process": {
       "description": "Process name, e.g. \"order_to_cash\".",
       "type": "string"
@@ -902,6 +919,7 @@ mod tests {
     }
   },
   "required": [
+    "idempotency_key",
     "process"
   ],
   "type": "object"
