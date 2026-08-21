@@ -273,6 +273,82 @@ fn required_amount_keys(credit_roles: &[String]) -> Vec<String> {
     keys
 }
 
+/// Merge `patch` into `base` the same way PostgreSQL `jsonb ||` merges objects:
+/// top-level keys from `patch` replace those in `base`.
+fn merge_context(base: &Value, patch: &Value) -> Value {
+    let mut merged = base.clone();
+    if let Some(merged_obj) = merged.as_object_mut() {
+        if let Some(patch_obj) = patch.as_object() {
+            for (key, value) in patch_obj {
+                merged_obj.insert(key.clone(), value.clone());
+            }
+        }
+    } else if patch.is_object() {
+        merged = patch.clone();
+    }
+    merged
+}
+
+/// Evaluate a single transition guard against the instance context.
+///
+/// Guards only refuse a transition when the data they inspect is actually
+/// present in context and violates the guard rule. If the relevant fields are
+/// absent, the guard is treated as not applicable and passes — this keeps the
+/// guard language focused on malformed data rather than on processes that do not
+/// populate the guarded fields for a particular instance.
+///
+/// On failure the reason string is returned so the caller can surface it in an
+/// [`EngineError::IllegalTransition`] (the only client-visible error shape that
+/// does not require extending the public enum and therefore touching every
+/// downstream match site).
+fn evaluate_guard(guard: &str, context: &Value) -> Result<(), String> {
+    match guard {
+        "lines_nonempty" => match context.get("lines") {
+            None => Ok(()),
+            Some(Value::Array(lines)) if !lines.is_empty() => Ok(()),
+            Some(Value::Array(_)) => Err("context.lines is empty".to_string()),
+            Some(_) => Err("context.lines is not an array".to_string()),
+        },
+        "totals_balance" => {
+            let lines = match context.get("lines") {
+                None => return Ok(()),
+                Some(v) => v,
+            };
+            let total = match context.get("total") {
+                None => return Ok(()),
+                Some(v) => v,
+            };
+
+            let lines = lines
+                .as_array()
+                .ok_or_else(|| "context.lines is not an array".to_string())?;
+            let total = total
+                .as_i64()
+                .ok_or_else(|| "context.total is not an integer number of cents".to_string())?;
+
+            let mut sum: i64 = 0;
+            for (idx, line) in lines.iter().enumerate() {
+                let amount = line
+                    .get("amount")
+                    .and_then(Value::as_i64)
+                    .ok_or_else(|| format!("context.lines[{idx}] has no integer amount"))?;
+                sum = sum
+                    .checked_add(amount)
+                    .ok_or_else(|| "sum of line amounts overflows".to_string())?;
+            }
+
+            if sum == total {
+                Ok(())
+            } else {
+                Err(format!(
+                    "line amounts sum to {sum}, context.total is {total}"
+                ))
+            }
+        }
+        _ => Err("unknown guard".to_string()),
+    }
+}
+
 pub fn available_transitions(proc: &Process, state: &str) -> Vec<AvailableTransition> {
     proc.transitions
         .iter()
@@ -434,7 +510,7 @@ pub async fn advance_instance(
     .fetch_optional(&mut *tx)
     .await?;
 
-    let (process_name, current_state, status, reference, _context) =
+    let (process_name, current_state, status, reference, context) =
         row.ok_or(EngineError::Db(sqlx::Error::RowNotFound))?;
 
     if status != "active" {
@@ -455,6 +531,25 @@ pub async fn advance_instance(
             available: available_transition_hints(&proc, &current_state),
         })?
         .clone();
+
+    // ── Step 2b: Evaluate declared transition guards ─────────────────────────
+    // Guards run against the context as it will be after applying the patch,
+    // before any GL post or state change is persisted. A refused guard is
+    // surfaced as an IllegalTransition because the transition exists but cannot
+    // fire for this context.
+    let merged_context = merge_context(&context, &input.context_patch);
+    if let Some(guards) = &transition.guards {
+        for guard in guards {
+            if let Err(reason) = evaluate_guard(guard, &merged_context) {
+                tx.rollback().await?;
+                return Err(EngineError::IllegalTransition {
+                    from: current_state.clone(),
+                    capability: capability.to_string(),
+                    available: vec![format!("guard '{guard}' refused: {reason}")],
+                });
+            }
+        }
+    }
 
     // ── Step 3: Derive deterministic idempotency key ─────────────────────────
     // Count existing step-log rows for this instance so the key is unique per

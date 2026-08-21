@@ -11,7 +11,7 @@
 //!   - `totals_balance`: the sum of `amount` on every object in `context.lines`
 //!     equals `context.total`.
 
-use ol_engine::{advance_instance, get_instance, start_instance, AdvanceInput};
+use ol_engine::{AdvanceInput, advance_instance, get_instance, start_instance};
 use ol_ledger::account_balance;
 use sqlx::PgPool;
 use std::collections::HashMap;
@@ -90,7 +90,9 @@ async fn customer_invoice_post_invoice_guard_is_enforced(pool: PgPool) {
         "post_invoice with unbalanced line totals must be refused by the guards; got Ok: {first:?}"
     );
 
-    let after_refusal = get_instance(&pool, id).await.expect("get instance after refusal");
+    let after_refusal = get_instance(&pool, id)
+        .await
+        .expect("get instance after refusal");
     assert_eq!(
         after_refusal.instance.current_state, "draft",
         "instance must remain in draft after guard refusal"
@@ -105,13 +107,19 @@ async fn customer_invoice_post_invoice_guard_is_enforced(pool: PgPool) {
         "step log must contain only the start row after refusal"
     );
     assert!(
-        after_refusal.steps.iter().all(|s| s.capability != "post_invoice"),
+        after_refusal
+            .steps
+            .iter()
+            .all(|s| s.capability != "post_invoice"),
         "no post_invoice step log row must be written when the guard refuses"
     );
 
     // No ledger entry was posted.
     let ar_before = account_balance(&pool, "1100").await.expect("AR balance");
-    assert_eq!(ar_before.debits, 0, "AR must not be debited when guard refuses");
+    assert_eq!(
+        ar_before.debits, 0,
+        "AR must not be debited when guard refuses"
+    );
     let sales_before = account_balance(&pool, "4000").await.expect("sales balance");
     assert_eq!(
         sales_before.credits, 0,
@@ -152,9 +160,14 @@ async fn customer_invoice_post_invoice_guard_is_enforced(pool: PgPool) {
         advanced.current_state, "posted",
         "instance must advance exactly one step to posted"
     );
-    assert_eq!(advanced.status, "active", "posted is not terminal; status stays active");
+    assert_eq!(
+        advanced.status, "active",
+        "posted is not terminal; status stays active"
+    );
 
-    let after_success = get_instance(&pool, id).await.expect("get instance after success");
+    let after_success = get_instance(&pool, id)
+        .await
+        .expect("get instance after success");
     assert_eq!(
         after_success.steps.len(),
         2,
@@ -175,12 +188,18 @@ async fn customer_invoice_post_invoice_guard_is_enforced(pool: PgPool) {
 
     // GL reflects the posting rule.
     let ar_after = account_balance(&pool, "1100").await.expect("AR balance");
-    assert_eq!(ar_after.debits, total, "AR must be debited by the invoice total");
+    assert_eq!(
+        ar_after.debits, total,
+        "AR must be debited by the invoice total"
+    );
     let sales_after = account_balance(&pool, "4000").await.expect("sales balance");
     assert_eq!(
         sales_after.credits, sales,
         "sales_revenue must be credited by the net amount"
     );
     let tax_after = account_balance(&pool, "2100").await.expect("tax balance");
-    assert_eq!(tax_after.credits, tax, "tax_payable must be credited by the tax amount");
+    assert_eq!(
+        tax_after.credits, tax,
+        "tax_payable must be credited by the tax amount"
+    );
 }
