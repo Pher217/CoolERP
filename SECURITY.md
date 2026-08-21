@@ -13,8 +13,8 @@ assumption. Accounting correctness is enforced at the database level and is stro
 | Least-privilege DB role (`ol_app`) — no UPDATE/DELETE/TRUNCATE on the ledger | ✅ Migration `0008_app_role.sql`; proven by `scripts/verify_append_only.sh`. |
 | REST API (`ol-api`) authentication | ❌ **None yet.** Runs unauthenticated. Binds `127.0.0.1` by default and warns loudly at startup. |
 | MCP server (`ol-mcp`) authentication | ❌ **None yet** — OAuth 2.1 PKCE is designed (ADR-006) but not implemented. |
-| Audit-log `actor` | ⚠️ **Client-asserted** until auth lands — it records who the caller *claims* to be, not a verified identity. |
-| CORS | ⚠️ Permissive in dev. |
+| Audit-log `actor` | ⚠️ **Client-asserted** on the ledger path until auth lands — it records who the caller *claims* to be, not a verified identity. On **process advances it is not even asserted**: it is a per-surface constant (`api`, `mcp`, `ai-chat`). |
+| CORS | ❌ **Always permissive** — `CorsLayer::permissive()` is applied unconditionally; there is no restricted mode yet ([#58](https://github.com/Pher217/CoolERP/issues/58)). |
 
 **Wiring authentication (OAuth 2.1 PKCE, ADR-006) into `ol-api` and `ol-mcp` is the
 project's #1 open issue.** Until it ships, treat CoolERP as a single-tenant, trusted-
