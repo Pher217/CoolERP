@@ -94,7 +94,11 @@ async fn period_enforcement_fails_closed(pool: PgPool) -> TestResult {
     .await?;
 
     assert!(result.balanced, "open-period post must succeed");
-    assert_eq!(entry_count(&pool).await, 1, "exactly one entry after open post");
+    assert_eq!(
+        entry_count(&pool).await,
+        1,
+        "exactly one entry after open post"
+    );
 
     // -----------------------------------------------------------------
     // Case 3: effective_date INSIDE a closed period -> PeriodClosed, no entry.
@@ -127,12 +131,9 @@ async fn period_enforcement_fails_closed(pool: PgPool) -> TestResult {
     // assertion pins the fail-closed contract the posting path must enforce.
     // -----------------------------------------------------------------
     let outside = "2026-08-15".parse::<chrono::NaiveDate>().unwrap();
-    let err = post_journal_entry(
-        &pool,
-        &req_with_effective(Uuid::new_v4(), Some(outside)),
-    )
-    .await
-    .unwrap_err();
+    let err = post_journal_entry(&pool, &req_with_effective(Uuid::new_v4(), Some(outside)))
+        .await
+        .unwrap_err();
 
     assert!(
         matches!(err, PostError::PeriodNotFound(ref d) if *d == outside.to_string()),

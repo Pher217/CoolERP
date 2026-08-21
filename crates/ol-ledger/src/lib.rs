@@ -232,6 +232,27 @@ async fn try_post(pool: &PgPool, req: &PostRequest) -> Result<Outcome, PostError
     let journal_id =
         journal_id.ok_or_else(|| PostError::JournalNotFound(req.journal_code.clone()))?;
 
+    // Fail closed: when fiscal periods are configured, an effective_date that
+    // matches none of them is refused, exactly as a closed-period post is. The
+    // DB trigger (migrations/0003_periods.sql) only blocks dates inside a
+    // *closed* period, so a date that slips into a gap between configured
+    // periods would otherwise post freely. Posting stays opt-in while no
+    // period is configured at all (see migrations/0003_periods.sql).
+    let effective = req.effective_date.unwrap_or(req.entry_date);
+    let (has_periods, covered): (bool, bool) = sqlx::query_as(
+        "SELECT EXISTS(SELECT 1 FROM fiscal_periods), \
+                EXISTS(SELECT 1 FROM fiscal_periods WHERE $1 BETWEEN start_date AND end_date)",
+    )
+    .bind(effective)
+    .fetch_one(&mut *tx)
+    .await
+    .map_err(classify)?;
+
+    if has_periods && !covered {
+        let _ = tx.rollback().await;
+        return Err(PostError::PeriodNotFound(effective.to_string()));
+    }
+
     // Layer 3: lock the touched account rows, ordered by id for deadlock-free
     // locking, and resolve code -> id in one pass.
     let mut codes: Vec<String> = req.lines.iter().map(|l| l.account_code.clone()).collect();
