@@ -15,22 +15,21 @@ sqlx migrate run
 cargo sqlx prepare --check --workspace
 cargo deny check
 ```
-> A Rust toolchain was NOT installed when the scaffold was created. Install stable Rust first (`rustup`), then run a real `cargo build` and reconcile any dependency version/feature drift before relying on the manifests.
 
 ## Hard rules
 - **Money is integer cents (`i64` / `BIGINT`). Never floats.**
 - **The ledger is append-only.** No `UPDATE`/`DELETE` on `journal_entries`, `journal_lines`, `events`. Corrections are reversing entries.
 - **Every entry balances** (≥2 lines, Σdebit = Σcredit) — enforced by a DB trigger. Don't move this check into application code only.
-- **Every state-changing capability is idempotent** via a client `idempotency_key` + `UNIQUE (operation, idempotency_key)`.
+- **Ledger posting and inventory receipt are idempotent** via a client `idempotency_key` + a canonical request hash + `UNIQUE (operation, idempotency_key)`. `start_process` is not yet ([#54](https://github.com/Pher217/CoolERP/issues/54)); `advance_process`'s key is server-derived and does not dedupe a retry.
 - **No raw-SQL / `execute` MCP tool.** Capabilities are discrete and typed.
 - **Posting path:** REPEATABLE READ + `SELECT … FOR UPDATE`, retry on SQLSTATE `40001`.
 - Property-test the double-entry invariant hard before any release.
 
 ## Where things live
 - Invariants: `crates/ol-domain/src/lib.rs` + `migrations/0001_init.sql`.
-- Posting engine: `crates/ol-ledger` (SQLx). CRUD: `crates/ol-api` (SeaORM 1.1.x, NOT 2.0 — still RC).
+- Posting engine: `crates/ol-ledger` (SQLx). API: `crates/ol-api` (SQLx — ADR-004 anticipated SeaORM 1.1.x for CRUD, but no SeaORM is used today).
 - MCP capabilities + OAuth model: `crates/ol-mcp`.
-- Capability surface reference + ADRs live in the maintainer's design notes (not in-repo).
+- ADRs live in [`docs/adr/`](docs/adr/README.md). Wider design notes live in the maintainer's vault, not in-repo.
 
 ## Conventions
 - Commit prefixes: `feat: fix: refactor: docs: test: chore:`. No AI attribution in git history.

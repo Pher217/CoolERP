@@ -4,7 +4,7 @@
 //! binds the TCP listener.  The app function is kept separate so integration
 //! tests can construct the router without a real listener.
 //!
-//! Auth is intentionally absent in this skeleton (ADR-008 dev token).
+//! Auth is intentionally absent in this skeleton (ADR-022 honest security posture).
 //! TODO: OAuth PKCE (ADR-006)
 
 pub mod chat;

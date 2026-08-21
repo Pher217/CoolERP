@@ -48,8 +48,8 @@ These aren't features. They're invariants — physically enforced, not politely 
 
 - ⚖️ **Double-entry, enforced in PostgreSQL.** Every entry has ≥2 lines and `Σdebits = Σcredits`, checked by a deferred constraint trigger at commit. The application layer is *defense in depth*, never the only guard.
 - 🔒 **Append-only.** No `UPDATE`, no `DELETE` on the ledger — triggers forbid it. Corrections are reversing entries. History is immutable.
-- 🔁 **Idempotent by construction.** Every state-changing capability takes an `idempotency_key`; a `UNIQUE (operation, idempotency_key)` constraint makes a duplicate post *physically impossible*. **Ran twice ≠ paid twice.**
-- 📜 **Audit-log-first.** An append-only `events` table records actor, capability, inputs hash, and resulting entries — machine-legible, replayable, training-corpus-grade.
+- 🔁 **Idempotent posting.** Journal posting and inventory receipt take a client `idempotency_key` bound to a canonical hash of the request: a `UNIQUE (operation, idempotency_key)` constraint makes a duplicate post *physically impossible*, and reusing a key with a **different** payload is rejected rather than silently replayed. **Ran twice ≠ paid twice.** Starting a process instance does not yet take a key — a retried `start_process` creates a duplicate instance ([#54](https://github.com/Pher217/CoolERP/issues/54)).
+- 📜 **Audit-log-first.** An append-only `events` table records actor, capability, inputs hash, and resulting entries — the actor is client-asserted on the ledger path and a per-surface constant (`api`/`mcp`/`ai-chat`) on process advances until auth lands ([#9](https://github.com/Pher217/CoolERP/issues/9)) — machine-legible, replayable, training-corpus-grade.
 - 💶 **Money is integer cents.** No floats. Ever.
 
 The posting engine is property-tested *and* hammered with concurrent races (12 writers on one idempotency key → exactly one entry; 15 writers contending the same accounts → not one lost post). Correctness is the entire credibility surface, so we treat it that way.
@@ -173,7 +173,7 @@ processes/      business-process source-of-truth (YAML)
 
 ## Stack
 
-Rust · Axum 0.8 / Tokio · SQLx 0.8 (hot ledger path) + SeaORM 1.1.x (CRUD) · `rmcp` MCP server · PostgreSQL · React + Vite web UI · OpenAPI 3.1 (utoipa); Python/TS clients planned.
+Rust · Axum 0.8 / Tokio · SQLx 0.8 (throughout — ADR-004 anticipated SeaORM for CRUD; it is not used today) · `rmcp` MCP server · PostgreSQL · React + Vite web UI · OpenAPI 3.1 (utoipa); Python/TS clients planned.
 
 ## Kin & prior art
 

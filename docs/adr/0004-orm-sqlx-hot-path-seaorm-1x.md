@@ -22,3 +22,15 @@ explicitly *not* 2.0, which is still RC.
   macros, `prepare --check`, and transaction support the project needs.
 - Because the `query!` macros are compile-time checked, a build needs either a
   live `DATABASE_URL` or a committed `.sqlx` offline cache. CI uses the former.
+
+## Amendment (2026-08-21) — SeaORM is declared but unused
+
+This ADR anticipated SeaORM 1.1.x for the CRUD surface. As of `cc1b8ab` **no SeaORM is used
+anywhere**: `grep -rn "sea_orm" crates/ --include='*.rs'` returns zero matches, and `crates/ol-api`
+is pure SQLx (`query!` / `query_scalar!`). The only trace is an unused workspace dependency at
+`Cargo.toml:26`.
+
+The decision below stands as the *record of what was decided*; this note records what was actually
+built, so a reader grepping for the advertised stack is not misled. Either adopt SeaORM for the CRUD
+surface or drop the unused dependency — until then, the stack is SQLx throughout.
+
