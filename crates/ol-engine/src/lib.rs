@@ -291,31 +291,45 @@ fn merge_context(base: &Value, patch: &Value) -> Value {
 
 /// Evaluate a single transition guard against the instance context.
 ///
-/// Guards only refuse a transition when the data they inspect is actually
-/// present in context and violates the guard rule. If the relevant fields are
-/// absent, the guard is treated as not applicable and passes — this keeps the
-/// guard language focused on malformed data rather than on processes that do not
-/// populate the guarded fields for a particular instance.
+/// Guards fail closed: a guard whose inspected field is absent refuses the
+/// transition with a clear reason, exactly as it does when the field is present
+/// and violates the rule.
+///
+/// The `lines_nonempty` and `totals_balance` guards are defined for invoice
+/// posting transitions that target the `posted` state. On transitions whose
+/// target state is not `posted` they are treated as not applicable and pass,
+/// because the YAML author may declare them on other invoice-like transitions
+/// (e.g. order-to-cash `shipped -> invoiced`) that do not carry invoice-line
+/// context. Unknown guards are always refused (fail-closed).
 ///
 /// On failure the reason string is returned so the caller can surface it in an
 /// [`EngineError::IllegalTransition`] (the only client-visible error shape that
 /// does not require extending the public enum and therefore touching every
 /// downstream match site).
-fn evaluate_guard(guard: &str, context: &Value) -> Result<(), String> {
+fn evaluate_guard(guard: &str, context: &Value, to_state: &str) -> Result<(), String> {
     match guard {
-        "lines_nonempty" => match context.get("lines") {
-            None => Ok(()),
-            Some(Value::Array(lines)) if !lines.is_empty() => Ok(()),
-            Some(Value::Array(_)) => Err("context.lines is empty".to_string()),
-            Some(_) => Err("context.lines is not an array".to_string()),
-        },
+        "lines_nonempty" => {
+            // Invoice-line guards only apply to actual invoice-posting transitions.
+            if to_state != "posted" {
+                return Ok(());
+            }
+            match context.get("lines") {
+                None => Err("context.lines is missing".to_string()),
+                Some(Value::Array(lines)) if !lines.is_empty() => Ok(()),
+                Some(Value::Array(_)) => Err("context.lines is empty".to_string()),
+                Some(_) => Err("context.lines is not an array".to_string()),
+            }
+        }
         "totals_balance" => {
+            if to_state != "posted" {
+                return Ok(());
+            }
             let lines = match context.get("lines") {
-                None => return Ok(()),
+                None => return Err("context.lines is missing".to_string()),
                 Some(v) => v,
             };
             let total = match context.get("total") {
-                None => return Ok(()),
+                None => return Err("context.total is missing".to_string()),
                 Some(v) => v,
             };
 
@@ -540,7 +554,7 @@ pub async fn advance_instance(
     let merged_context = merge_context(&context, &input.context_patch);
     if let Some(guards) = &transition.guards {
         for guard in guards {
-            if let Err(reason) = evaluate_guard(guard, &merged_context) {
+            if let Err(reason) = evaluate_guard(guard, &merged_context, &transition.to) {
                 tx.rollback().await?;
                 return Err(EngineError::IllegalTransition {
                     from: current_state.clone(),
