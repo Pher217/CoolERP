@@ -287,7 +287,7 @@ pub async fn dispatch_tool(
         }
 
         "list_inventory" => {
-            let rows = crate::list_inventory_rows(pool)
+            let rows = crate::inventory::list_inventory_rows(pool)
                 .await
                 .map_err(|e| format!("database error: {e}"))?;
             serde_json::to_value(rows).map_err(|e| format!("serialization error: {e}"))
@@ -308,9 +308,9 @@ pub async fn dispatch_tool(
                 .to_string();
             let unit_cost = args["unit_cost"].as_str().map(ToOwned::to_owned);
 
-            let resp = crate::receive_stock_core(
+            let resp = crate::inventory::receive_stock_core(
                 pool,
-                crate::ReceiveStockRequest {
+                crate::inventory::ReceiveStockRequest {
                     idempotency_key: ctx.idempotency_key("receive_stock", args),
                     sku,
                     location_code,
