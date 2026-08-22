@@ -39,6 +39,7 @@ pub struct OverviewResponse {
 }
 
 /// Raw row returned by the overview aggregate query.
+#[derive(sqlx::FromRow)]
 struct OverviewRow {
     cash_cents: i64,
     revenue_cents: i64,
@@ -46,20 +47,6 @@ struct OverviewRow {
     ar_cents: i64,
     ap_cents: i64,
     account_count: i64,
-}
-
-impl<'r> sqlx::FromRow<'r, sqlx::postgres::PgRow> for OverviewRow {
-    fn from_row(row: &'r sqlx::postgres::PgRow) -> Result<Self, sqlx::Error> {
-        use sqlx::Row;
-        Ok(Self {
-            cash_cents: row.try_get("cash_cents")?,
-            revenue_cents: row.try_get("revenue_cents")?,
-            expenses_cents: row.try_get("expenses_cents")?,
-            ar_cents: row.try_get("ar_cents")?,
-            ap_cents: row.try_get("ap_cents")?,
-            account_count: row.try_get("account_count")?,
-        })
-    }
 }
 
 /// Get a snapshot of key financial metrics.
