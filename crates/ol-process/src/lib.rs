@@ -211,6 +211,14 @@ impl Process {
                 });
             }
 
+            if let Some(guards) = &transition.guards
+                && !guards.is_empty()
+            {
+                line.push_str(" [");
+                line.push_str(&guards.join(", "));
+                line.push(']');
+            }
+
             lines.push(line);
         }
 
@@ -260,7 +268,7 @@ mod tests {
             // register_payment declares none, and ol-engine posts only when a posting_rule
             // exists (crates/ol-engine/src/lib.rs:469) — so it moves no money here at all.
             // void_invoice moves none by design.
-            "    draft --> posted: post_invoice 💶",
+            "    draft --> posted: post_invoice 💶 [lines_nonempty, totals_balance]",
             "    posted --> paid: register_payment",
             "    draft --> void: void_invoice",
             // paid and void have no outgoing transition, so they are terminal.
