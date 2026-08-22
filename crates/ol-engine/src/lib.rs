@@ -202,10 +202,10 @@ type StepLogRow = (
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/// Resolve the processes directory: PROCESSES_DIR env var → fallback "../../processes"
+/// Resolve the processes directory: OL_PROCESSES_DIR env var → fallback "../../processes"
 /// relative to CARGO_MANIFEST_DIR (test) or the binary's cwd (prod).
 fn processes_dir() -> PathBuf {
-    if let Ok(dir) = env::var("PROCESSES_DIR") {
+    if let Ok(dir) = env::var("OL_PROCESSES_DIR") {
         return PathBuf::from(dir);
     }
     // In tests `cargo test` sets CARGO_MANIFEST_DIR; in prod fall back to cwd.

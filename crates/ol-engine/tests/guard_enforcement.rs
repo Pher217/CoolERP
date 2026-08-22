@@ -23,7 +23,7 @@ use std::sync::OnceLock;
 ///
 /// It contains a copy of `processes/customer_invoice.yaml` plus a test-only
 /// `unknown_guard_invoice.yaml` definition. Using one shared directory avoids
-/// races on the `PROCESSES_DIR` environment variable across concurrent tests in
+/// races on the `OL_PROCESSES_DIR` environment variable across concurrent tests in
 /// this binary.
 fn test_processes_dir() -> &'static Path {
     static DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
@@ -66,10 +66,10 @@ fn sample_posting_amounts() -> HashMap<String, i64> {
 }
 
 fn set_processes_dir() {
-    // SAFETY: all tests in this file set `PROCESSES_DIR` to the same shared
+    // SAFETY: all tests in this file set `OL_PROCESSES_DIR` to the same shared
     // directory, so a concurrent read always observes a directory that contains
     // every process used by this file.
-    unsafe { std::env::set_var("PROCESSES_DIR", test_processes_dir()) };
+    unsafe { std::env::set_var("OL_PROCESSES_DIR", test_processes_dir()) };
 }
 
 /// Assert that an attempted `post_invoice` advance was refused, that the
