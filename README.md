@@ -61,7 +61,7 @@ The agent acts; the human watches, approves, and steps in — both over the same
 ```mermaid
 stateDiagram-v2
     [*] --> draft
-    draft --> posted: post_invoice 💶
+    draft --> posted: post_invoice 💶 [lines_nonempty, totals_balance]
     posted --> paid: register_payment
     draft --> void: void_invoice
     paid --> [*]
