@@ -1,7 +1,7 @@
 //! Integration tests for the ol-engine crate using the order_to_cash process.
 //!
 //! Each `#[sqlx::test]` receives a fresh, migrated database.  All tests set
-//! `PROCESSES_DIR` to point at the workspace `processes/` directory so the
+//! `OL_PROCESSES_DIR` to point at the workspace `processes/` directory so the
 //! engine can load the YAML definitions.
 
 use ol_engine::{
@@ -12,7 +12,7 @@ use ol_ledger::account_balance;
 use sqlx::PgPool;
 use std::collections::HashMap;
 
-const PROCESSES_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../processes");
+const OL_PROCESSES_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../processes");
 
 fn today() -> chrono::NaiveDate {
     chrono::NaiveDate::from_ymd_opt(2026, 6, 14).unwrap()
@@ -72,7 +72,7 @@ async fn test_full_o2c_run(pool: PgPool) {
      *      and the GL balances reflect all three postings.
      */
     // SAFETY: single-threaded test setup; no other threads read this var yet.
-    unsafe { std::env::set_var("PROCESSES_DIR", PROCESSES_DIR) };
+    unsafe { std::env::set_var("OL_PROCESSES_DIR", OL_PROCESSES_DIR) };
 
     // Start
     let instance = start_instance(
@@ -195,7 +195,7 @@ async fn test_illegal_transition(pool: PgPool) {
      * THEN EngineError::IllegalTransition is returned
      */
     // SAFETY: single-threaded test setup; no other threads read this var yet.
-    unsafe { std::env::set_var("PROCESSES_DIR", PROCESSES_DIR) };
+    unsafe { std::env::set_var("OL_PROCESSES_DIR", OL_PROCESSES_DIR) };
 
     let instance = start_instance(&pool, "order_to_cash", None, serde_json::json!({}))
         .await
@@ -232,7 +232,7 @@ async fn test_advance_completed_instance_rejected(pool: PgPool) {
      * THEN EngineError::InstanceNotActive is returned
      */
     // SAFETY: single-threaded test setup; no other threads read this var yet.
-    unsafe { std::env::set_var("PROCESSES_DIR", PROCESSES_DIR) };
+    unsafe { std::env::set_var("OL_PROCESSES_DIR", OL_PROCESSES_DIR) };
 
     // Fast path to `cleared` via the return branch — shorter than full happy path.
     // inquiry → so_open → credit_check → confirmed → fulfillment → shipped → return
@@ -293,7 +293,7 @@ async fn test_derived_key_prevents_double_post_on_retry(pool: PgPool) {
      * movement regardless of retry count.
      */
     // SAFETY: single-threaded test setup; no other threads read this var yet.
-    unsafe { std::env::set_var("PROCESSES_DIR", PROCESSES_DIR) };
+    unsafe { std::env::set_var("OL_PROCESSES_DIR", OL_PROCESSES_DIR) };
 
     let instance = start_instance(&pool, "order_to_cash", None, serde_json::json!({}))
         .await
@@ -372,7 +372,7 @@ async fn test_get_and_list_instances(pool: PgPool) {
      * THEN they return correct data and the step log is non-empty
      */
     // SAFETY: single-threaded test setup; no other threads read this var yet.
-    unsafe { std::env::set_var("PROCESSES_DIR", PROCESSES_DIR) };
+    unsafe { std::env::set_var("OL_PROCESSES_DIR", OL_PROCESSES_DIR) };
 
     let a = start_instance(
         &pool,
@@ -451,7 +451,7 @@ async fn test_unbalanced_posting_rejected(pool: PgPool) {
      * THEN EngineError::Unbalanced is returned and no GL entry is created
      */
     // SAFETY: single-threaded test setup; no other threads read this var yet.
-    unsafe { std::env::set_var("PROCESSES_DIR", PROCESSES_DIR) };
+    unsafe { std::env::set_var("OL_PROCESSES_DIR", OL_PROCESSES_DIR) };
 
     let instance = start_instance(&pool, "order_to_cash", None, serde_json::json!({}))
         .await
@@ -515,8 +515,8 @@ async fn test_concurrent_advance_posts_exactly_once(pool: PgPool) {
      *      AND there is exactly one `post_invoice` step-log row
      *      AND there is exactly one journal entry for this transition.
      */
-    // SAFETY: we set PROCESSES_DIR before spawning any concurrent tasks.
-    unsafe { std::env::set_var("PROCESSES_DIR", PROCESSES_DIR) };
+    // SAFETY: we set OL_PROCESSES_DIR before spawning any concurrent tasks.
+    unsafe { std::env::set_var("OL_PROCESSES_DIR", OL_PROCESSES_DIR) };
 
     // ── Setup: advance to `shipped` sequentially ─────────────────────────────
     let instance = start_instance(
@@ -724,7 +724,7 @@ async fn test_post_invoice_missing_credit_amounts_returns_posting_amounts_requir
      *      AND the error message names both missing roles
      *      AND the instance remains in `shipped` (no state advance)
      */
-    unsafe { std::env::set_var("PROCESSES_DIR", PROCESSES_DIR) };
+    unsafe { std::env::set_var("OL_PROCESSES_DIR", OL_PROCESSES_DIR) };
 
     let instance = start_instance(&pool, "order_to_cash", None, serde_json::json!({}))
         .await
@@ -817,7 +817,7 @@ async fn test_post_invoice_with_correct_multi_credit_amounts_posts(pool: PgPool)
      * THEN the instance advances to `invoiced`
      *      AND AR is debited 71400, sales_revenue credited 60000, tax_payable credited 11400
      */
-    unsafe { std::env::set_var("PROCESSES_DIR", PROCESSES_DIR) };
+    unsafe { std::env::set_var("OL_PROCESSES_DIR", OL_PROCESSES_DIR) };
 
     let instance = start_instance(&pool, "order_to_cash", None, serde_json::json!({}))
         .await
@@ -1035,7 +1035,7 @@ fn test_available_transitions_posting_transition_exposes_posting_requirement() {
 /// ADR-025 change.
 #[sqlx::test(migrations = "../../migrations")]
 async fn test_single_credit_ignores_a_redundant_role_key(pool: PgPool) {
-    unsafe { std::env::set_var("PROCESSES_DIR", PROCESSES_DIR) };
+    unsafe { std::env::set_var("OL_PROCESSES_DIR", OL_PROCESSES_DIR) };
 
     let instance = start_instance(&pool, "order_to_cash", None, serde_json::json!({}))
         .await
@@ -1089,7 +1089,7 @@ async fn test_single_credit_ignores_a_redundant_role_key(pool: PgPool) {
 /// the defect was a plausible-looking wrong value, not a missing one.
 #[sqlx::test(migrations = "../../migrations")]
 async fn test_illegal_transition_hint_names_the_credited_account(pool: PgPool) {
-    unsafe { std::env::set_var("PROCESSES_DIR", PROCESSES_DIR) };
+    unsafe { std::env::set_var("OL_PROCESSES_DIR", OL_PROCESSES_DIR) };
 
     let instance = start_instance(&pool, "order_to_cash", None, serde_json::json!({}))
         .await
@@ -1142,7 +1142,7 @@ async fn test_illegal_transition_error_lists_available_capabilities(pool: PgPool
      * THEN IllegalTransition is returned and its Display message names
      *      the real capability: "run_credit_check -> credit_check"
      */
-    unsafe { std::env::set_var("PROCESSES_DIR", PROCESSES_DIR) };
+    unsafe { std::env::set_var("OL_PROCESSES_DIR", OL_PROCESSES_DIR) };
 
     let instance = start_instance(&pool, "order_to_cash", None, serde_json::json!({}))
         .await

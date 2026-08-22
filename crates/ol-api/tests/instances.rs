@@ -8,7 +8,7 @@
 //! transitions (e.g. `confirm_order`) and posting transitions (e.g. `deliver`
 //! which posts COGS→Inventory).
 //!
-//! PROCESSES_DIR is set by the test harness (CARGO_MANIFEST_DIR-relative) so
+//! OL_PROCESSES_DIR is set by the test harness (CARGO_MANIFEST_DIR-relative) so
 //! the engine can load YAML without a running binary.
 
 use axum::{

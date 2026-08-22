@@ -1051,7 +1051,7 @@ pub async fn chat(State(pool): State<PgPool>, Json(req): Json<ChatRequest>) -> i
 // ─── Process dir helper (shared with lib.rs) ──────────────────────────────────
 
 fn processes_dir() -> std::path::PathBuf {
-    if let Ok(dir) = std::env::var("PROCESSES_DIR") {
+    if let Ok(dir) = std::env::var("OL_PROCESSES_DIR") {
         return std::path::PathBuf::from(dir);
     }
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

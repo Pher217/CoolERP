@@ -1168,12 +1168,12 @@ pub async fn get_instance(State(pool): State<PgPool>, Path(id): Path<i64>) -> im
 /// Resolve the directory where process YAML files are stored.
 ///
 /// Priority order:
-/// 1. `PROCESSES_DIR` environment variable (runtime override).
+/// 1. `OL_PROCESSES_DIR` environment variable (runtime override).
 /// 2. `<manifest_dir>/../../processes` — works in both a local dev checkout and
 ///    inside `.claude/worktrees/…`, since `processes/` sits two levels above
 ///    `crates/ol-api` in both layouts.
 fn processes_dir() -> std::path::PathBuf {
-    if let Ok(dir) = std::env::var("PROCESSES_DIR") {
+    if let Ok(dir) = std::env::var("OL_PROCESSES_DIR") {
         return std::path::PathBuf::from(dir);
     }
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

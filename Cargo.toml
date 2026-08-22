@@ -1,7 +1,4 @@
 # CoolERP monorepo workspace.
-# NOTE: no Rust toolchain was installed when this was scaffolded (2026-05-29);
-# dependency versions/features are conservative but UNVERIFIED by a real build.
-# Stage 1 first step: install Rust, then `cargo build` and reconcile versions.
 [workspace]
 resolver = "3"
 members = ["crates/*"]
@@ -23,7 +20,6 @@ utoipa-axum = "0.2"
 # DB: SQLx for the hot ledger path (ADR-004/005); SeaORM 1.1.x for CRUD (NOT 2.0 — still RC).
 # Pinned to 0.8 to match the sqlx that SeaORM 1.1.x depends on — avoids two sqlx copies.
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "uuid", "chrono", "macros", "migrate", "json"] }
-sea-orm = { version = "1.1", features = ["sqlx-postgres", "runtime-tokio-rustls", "macros"] }
 # MCP server (rmcp 1.7.x): stdio + Streamable HTTP
 rmcp = { version = "2", features = ["server", "macros", "transport-streamable-http-server"] }
 # Serde + ids + errors + time + logging
