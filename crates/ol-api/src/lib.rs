@@ -920,95 +920,31 @@ pub struct ListInstancesQuery {
 }
 
 /// Map an [`EngineError`] to an HTTP status + [`ErrorEnvelope`].
+///
+/// The wording is owned by the engine's `#[error(...)]` `Display` impl; this
+/// function only chooses the HTTP status and [`ErrorCode`] per variant.
 fn engine_error_response(e: EngineError) -> (StatusCode, Json<ErrorEnvelope>) {
-    match e {
-        EngineError::ProcessNotFound(name) => err_response(
-            StatusCode::NOT_FOUND,
-            ErrorCode::Validation,
-            format!("process not found: {name}"),
-        ),
-        EngineError::IllegalTransition {
-            from,
-            capability,
-            available,
-        } => err_response(
-            StatusCode::CONFLICT,
-            ErrorCode::Validation,
-            if available.is_empty() {
-                format!(
-                    "no transition from '{from}' with capability '{capability}' (terminal state)"
-                )
-            } else {
-                format!(
-                    "no transition from '{from}' with capability '{capability}'. \
-                     Available from '{from}': {avail}",
-                    avail = available.join(", ")
-                )
-            },
-        ),
-        EngineError::InstanceNotActive(status) => err_response(
-            StatusCode::CONFLICT,
-            ErrorCode::Validation,
-            format!("instance is not active (status: {status})"),
-        ),
-        EngineError::ConcurrentAdvance => err_response(
-            StatusCode::CONFLICT,
-            ErrorCode::SerializationFailure,
-            "concurrent advance conflict: another caller already advanced this instance",
-        ),
-        EngineError::IdempotencyKeyReused(msg) => err_response(
-            StatusCode::CONFLICT,
-            ErrorCode::DuplicateIdempotencyKey,
-            msg,
-        ),
-        EngineError::UnknownRole(role) => err_response(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            ErrorCode::Validation,
-            format!("unknown account role: {role}"),
-        ),
-        EngineError::PostingAmountsRequired {
-            capability,
-            debit_role,
-            required_amount_keys,
-            missing,
-        } => err_response(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            ErrorCode::Validation,
-            format!(
-                "posting step '{capability}' needs amounts in integer cents, and must include the keys \
-                 [{required_amount_keys}]: key 'amount' = the debit total for role '{debit_role}'\
-                 {multi_credit_note}. Missing: [{missing}].",
-                multi_credit_note = if required_amount_keys.len() > 1 {
-                    ", and one key per credited role, all summing to 'amount'"
-                } else {
-                    " (the single credited account takes the whole total)"
-                },
-                required_amount_keys = required_amount_keys.join(", "),
-                missing = missing.join(", ")
-            ),
-        ),
-        EngineError::Unbalanced { debit, credit } => err_response(
-            StatusCode::UNPROCESSABLE_ENTITY,
-            ErrorCode::UnbalancedEntry,
-            format!("posting amounts unbalanced: debit {debit} != credit {credit}"),
-        ),
-        EngineError::Ledger(e) => post_error_response(e),
-        EngineError::Db(e) => err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            ErrorCode::Internal,
-            e.to_string(),
-        ),
-        EngineError::Io(e) => err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            ErrorCode::Internal,
-            e.to_string(),
-        ),
-        EngineError::ProcessLoad(msg) => err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            ErrorCode::Internal,
-            format!("process load error: {msg}"),
-        ),
-    }
+    let (status, code) = match e {
+        EngineError::ProcessNotFound(_) => (StatusCode::NOT_FOUND, ErrorCode::Validation),
+        EngineError::IllegalTransition { .. } => (StatusCode::CONFLICT, ErrorCode::Validation),
+        EngineError::InstanceNotActive(_) => (StatusCode::CONFLICT, ErrorCode::Validation),
+        EngineError::ConcurrentAdvance => (StatusCode::CONFLICT, ErrorCode::SerializationFailure),
+        EngineError::IdempotencyKeyReused(_) => {
+            (StatusCode::CONFLICT, ErrorCode::DuplicateIdempotencyKey)
+        }
+        EngineError::UnknownRole(_) => (StatusCode::UNPROCESSABLE_ENTITY, ErrorCode::Validation),
+        EngineError::PostingAmountsRequired { .. } => {
+            (StatusCode::UNPROCESSABLE_ENTITY, ErrorCode::Validation)
+        }
+        EngineError::Unbalanced { .. } => {
+            (StatusCode::UNPROCESSABLE_ENTITY, ErrorCode::UnbalancedEntry)
+        }
+        EngineError::Ledger(inner) => return post_error_response(inner),
+        EngineError::Db(_) | EngineError::Io(_) | EngineError::ProcessLoad(_) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, ErrorCode::Internal)
+        }
+    };
+    err_response(status, code, e.to_string())
 }
 
 /// Start a new process instance.

@@ -114,11 +114,15 @@ pub struct StepLog {
 /// Errors returned by the engine.
 #[derive(Debug, thiserror::Error)]
 pub enum EngineError {
-    #[error("process '{0}' not found in the processes directory")]
+    #[error("process not found: {0}")]
     ProcessNotFound(String),
 
-    #[error("no transition from '{from}' with capability '{capability}'. Available from '{from}': {available}",
-        available = if available.is_empty() { "(none — terminal state)".to_string() } else { available.join(", ") }
+    #[error("no transition from '{from}' with capability '{capability}'{available_suffix}",
+        available_suffix = if available.is_empty() {
+            " (terminal state)".to_string()
+        } else {
+            format!(". Available from '{from}': {avail}", avail = available.join(", "))
+        }
     )]
     IllegalTransition {
         from: String,
@@ -129,10 +133,10 @@ pub enum EngineError {
         available: Vec<String>,
     },
 
-    #[error("instance is not active (current status: {0})")]
+    #[error("instance is not active (status: {0})")]
     InstanceNotActive(String),
 
-    #[error("unknown account role '{0}'")]
+    #[error("unknown account role: {0}")]
     UnknownRole(String),
 
     /// The caller supplied amounts for a posting step but the map is missing
@@ -170,16 +174,16 @@ pub enum EngineError {
     ConcurrentAdvance,
 
     /// The idempotency key was already used for a different payload.
-    #[error("IDEMPOTENCY_KEY_REUSED: {0}")]
+    #[error("{0}")]
     IdempotencyKeyReused(String),
 
     #[error("ledger error: {0}")]
     Ledger(#[from] ol_ledger::PostError),
 
-    #[error("database error: {0}")]
+    #[error("{0}")]
     Db(#[from] sqlx::Error),
 
-    #[error("io error: {0}")]
+    #[error("{0}")]
     Io(#[from] std::io::Error),
 
     #[error("process load error: {0}")]

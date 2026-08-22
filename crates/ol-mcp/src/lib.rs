@@ -561,83 +561,21 @@ impl LedgerHandler {
 
 /// Map an [`ol_engine::EngineError`] to a structured `"CODE: message"` string for MCP tool errors.
 fn engine_error_to_string(e: ol_engine::EngineError) -> String {
-    match e {
-        ol_engine::EngineError::ProcessNotFound(name) => {
-            ApiError::new(ErrorCode::Validation, format!("process not found: {name}")).to_string()
-        }
-        ol_engine::EngineError::IllegalTransition {
-            from,
-            capability,
-            available,
-        } => {
-            let msg = if available.is_empty() {
-                format!(
-                    "no transition from '{from}' with capability '{capability}' (terminal state)"
-                )
-            } else {
-                format!(
-                    "no transition from '{from}' with capability '{capability}'. \
-                     Available from '{from}': {avail}",
-                    avail = available.join(", ")
-                )
-            };
-            ApiError::new(ErrorCode::Validation, msg).to_string()
-        }
-        ol_engine::EngineError::InstanceNotActive(status) => ApiError::new(
-            ErrorCode::Validation,
-            format!("instance is not active (status: {status})"),
-        )
-        .to_string(),
-        ol_engine::EngineError::ConcurrentAdvance => ApiError::new(
-            ErrorCode::SerializationFailure,
-            "concurrent advance conflict".to_string(),
-        )
-        .to_string(),
-        ol_engine::EngineError::UnknownRole(role) => ApiError::new(
-            ErrorCode::Validation,
-            format!("unknown account role: {role}"),
-        )
-        .to_string(),
-        ol_engine::EngineError::PostingAmountsRequired {
-            capability,
-            debit_role,
-            required_amount_keys,
-            missing,
-        } => ApiError::new(
-            ErrorCode::Validation,
-            format!(
-                "posting step '{capability}' needs amounts in integer cents, and must include the keys \
-                 [{required_amount_keys}]: key 'amount' = the debit total for role '{debit_role}'\
-                 {multi_credit_note}. Missing: [{missing}].",
-                multi_credit_note = if required_amount_keys.len() > 1 {
-                    ", and one key per credited role, all summing to 'amount'"
-                } else {
-                    " (the single credited account takes the whole total)"
-                },
-                required_amount_keys = required_amount_keys.join(", "),
-                missing = missing.join(", ")
-            ),
-        )
-        .to_string(),
-        ol_engine::EngineError::Unbalanced { debit, credit } => ApiError::new(
-            ErrorCode::UnbalancedEntry,
-            format!("posting unbalanced: debit {debit} != credit {credit}"),
-        )
-        .to_string(),
-        ol_engine::EngineError::Ledger(inner) => post_error_to_string(inner),
-        ol_engine::EngineError::Db(db) => {
-            ApiError::new(ErrorCode::Internal, db.to_string()).to_string()
-        }
-        ol_engine::EngineError::Io(io) => {
-            ApiError::new(ErrorCode::Internal, io.to_string()).to_string()
-        }
-        ol_engine::EngineError::ProcessLoad(msg) => {
-            ApiError::new(ErrorCode::Internal, format!("process load error: {msg}")).to_string()
-        }
-        ol_engine::EngineError::IdempotencyKeyReused(msg) => {
-            ApiError::new(ErrorCode::DuplicateIdempotencyKey, msg).to_string()
-        }
-    }
+    let code = match e {
+        ol_engine::EngineError::ProcessNotFound(_) => ErrorCode::Validation,
+        ol_engine::EngineError::IllegalTransition { .. } => ErrorCode::Validation,
+        ol_engine::EngineError::InstanceNotActive(_) => ErrorCode::Validation,
+        ol_engine::EngineError::ConcurrentAdvance => ErrorCode::SerializationFailure,
+        ol_engine::EngineError::IdempotencyKeyReused(_) => ErrorCode::DuplicateIdempotencyKey,
+        ol_engine::EngineError::UnknownRole(_) => ErrorCode::Validation,
+        ol_engine::EngineError::PostingAmountsRequired { .. } => ErrorCode::Validation,
+        ol_engine::EngineError::Unbalanced { .. } => ErrorCode::UnbalancedEntry,
+        ol_engine::EngineError::Ledger(inner) => return post_error_to_string(inner),
+        ol_engine::EngineError::Db(_)
+        | ol_engine::EngineError::Io(_)
+        | ol_engine::EngineError::ProcessLoad(_) => ErrorCode::Internal,
+    };
+    ApiError::new(code, e.to_string()).to_string()
 }
 
 /// Build an [`ApiError`] for `code`, stripping a leading `"<CODE>: "` prefix from
