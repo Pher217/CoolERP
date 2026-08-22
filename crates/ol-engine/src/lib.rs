@@ -262,11 +262,6 @@ fn row_to_instance(
     }
 }
 
-/// Return all transitions that are legal from `state` in the given process.
-///
-/// Each entry in the returned vec describes one legal next move: the capability
-/// name to pass, the target state, and (for posting transitions) the amounts
-/// the caller must supply.
 /// The account roles a posting rule credits, single or multiple alike.
 fn credit_roles_of(rule: &PostingRule) -> Vec<String> {
     match &rule.credit {
@@ -377,6 +372,11 @@ fn evaluate_guard(guard: &str, context: &Value, to_state: &str) -> Result<(), St
     }
 }
 
+/// Return all transitions that are legal from `state` in the given process.
+///
+/// Each entry in the returned vec describes one legal next move: the capability
+/// name to pass, the target state, and (for posting transitions) the amounts
+/// the caller must supply.
 pub fn available_transitions(proc: &Process, state: &str) -> Vec<AvailableTransition> {
     proc.transitions
         .iter()
@@ -801,7 +801,9 @@ pub async fn advance_instance(
                 .await?;
         let debit_code = debit_code.ok_or_else(|| EngineError::UnknownRole(rule.debit.clone()))?;
 
-        // Fix 5: resolve currency from the debit account instead of hardcoding.
+        // The currency of a posting must match the debit account's currency, because the
+        // debit side determines the monetary unit for the entire entry. We look it up
+        // from the accounts table rather than hardcoding to support multi-currency setups.
         let currency: String = sqlx::query_scalar("SELECT currency FROM accounts WHERE code = $1")
             .bind(&debit_code)
             .fetch_one(&mut *tx)

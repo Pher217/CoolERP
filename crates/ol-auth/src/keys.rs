@@ -50,18 +50,6 @@ impl SigningKeys {
         })
     }
 
-    /// Export private and public PEM strings (PKCS#8 / SPKI).
-    /// Useful for persisting a generated key pair to environment variables.
-    pub fn export_pems(&self) -> Result<(String, String)> {
-        // Re-derive the signing key from the public bytes is not possible — we
-        // need to store PEMs at generate() time. Rebuild here via dalek only if
-        // we had stored the raw private key. Instead, require callers to use
-        // `generate_with_pems()` when they need the PEM strings.
-        Err(AuthError::Key(
-            "export_pems not available on loaded keys; use generate_with_pems()".into(),
-        ))
-    }
-
     /// Generate a fresh key pair and also return the PEM strings so they can
     /// be persisted (e.g. to environment variables).
     pub fn generate_with_pems() -> Result<(Self, String, String)> {
