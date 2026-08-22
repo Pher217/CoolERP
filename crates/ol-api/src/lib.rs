@@ -658,7 +658,7 @@ pub async fn receive_stock_core(
     .bind(item_id)
     .bind(body.qty.clone())
     .bind(location_id)
-    .bind(body.unit_cost.clone())
+    .bind(body.unit_cost.clone().filter(|s| !s.is_empty()))
     .fetch_one(&mut *tx)
     .await
     .map_err(|e| format!("database error: {e}"))?;
@@ -738,16 +738,16 @@ fn receive_request_hash(body: &ReceiveStockRequest) -> String {
     ol_ledger::sha256_hex(&bytes)
 }
 
-/// Stable hash of the receipt's economic content, for the audit trail.
+/// Stable SHA-256 hash of the receipt's inputs, for the audit trail.
+///
+/// Reuses the same canonical struct as [`receive_request_hash`]: the audit digest
+/// must be boundary-unambiguous (`None` vs `Some("")` differ) and versioned so a
+/// future format change is explicit. The canonical JSON includes `key` and
+/// `actor` because the frozen oracle pins the full `receive_request_hash` form;
+/// keeping the two hashes identical prevents the audit trail from ever silently
+/// diverging from the idempotency claim that guarded the same receipt.
 fn receipt_inputs_hash(body: &ReceiveStockRequest) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut h = DefaultHasher::new();
-    body.sku.hash(&mut h);
-    body.location_code.hash(&mut h);
-    body.qty.hash(&mut h);
-    body.unit_cost.hash(&mut h);
-    format!("{:016x}", h.finish())
+    receive_request_hash(body)
 }
 
 /// Receive stock into a location.
