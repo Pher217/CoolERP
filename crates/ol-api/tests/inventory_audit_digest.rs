@@ -17,8 +17,7 @@ use uuid::Uuid;
 /// `{"v":"1","op":"receive_stock","key":"11111111-2222-3333-4444-555555555555",
 /// "actor":"test","sku":"WIDGET-A","location_code":"MAIN","qty":"10",
 /// "unit_cost":"250"}`.
-const PINNED_DIGEST: &str =
-    "4c59f137ea2f42a5eaf34546128b1e1a82d8b0d8093070ab9d6451d7e20734f7";
+const PINNED_DIGEST: &str = "4c59f137ea2f42a5eaf34546128b1e1a82d8b0d8093070ab9d6451d7e20734f7";
 
 fn receipt(
     key: Uuid,
@@ -76,25 +75,17 @@ async fn inventory_receipt_audit_digest_is_pinned_sha256(pool: PgPool) {
         .execute(&pool)
         .await
         .expect("seed boundary items");
-    sqlx::query(
-        "INSERT INTO locations (code, name) VALUES ('C', 'C loc'), ('BC', 'BC loc')",
-    )
-    .execute(&pool)
-    .await
-    .expect("seed boundary locations");
+    sqlx::query("INSERT INTO locations (code, name) VALUES ('C', 'C loc'), ('BC', 'BC loc')")
+        .execute(&pool)
+        .await
+        .expect("seed boundary locations");
 
-    let boundary_ab_c = receive_stock_core(
-        &pool,
-        receipt(Uuid::new_v4(), "AB", "C", "1", None),
-    )
-    .await
-    .expect("AB/C receipt");
-    let boundary_a_bc = receive_stock_core(
-        &pool,
-        receipt(Uuid::new_v4(), "A", "BC", "1", None),
-    )
-    .await
-    .expect("A/BC receipt");
+    let boundary_ab_c = receive_stock_core(&pool, receipt(Uuid::new_v4(), "AB", "C", "1", None))
+        .await
+        .expect("AB/C receipt");
+    let boundary_a_bc = receive_stock_core(&pool, receipt(Uuid::new_v4(), "A", "BC", "1", None))
+        .await
+        .expect("A/BC receipt");
 
     let ab_c_hash = inputs_hash_for_move(&pool, boundary_ab_c.move_id).await;
     let a_bc_hash = inputs_hash_for_move(&pool, boundary_a_bc.move_id).await;
