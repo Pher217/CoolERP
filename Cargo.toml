@@ -35,7 +35,7 @@ chrono = { version = "0.4", features = ["serde"] }
 jsonwebtoken = "9"
 ed25519-dalek = { version = "3", features = ["pkcs8", "pem", "rand_core"] }
 argon2 = "0.5"
-base64 = "0.22"
+base64 = "0.23"
 rand = "0.10"
 getrandom = { version = "0.4", features = ["std", "sys_rng"] }
 tracing = "0.1"
