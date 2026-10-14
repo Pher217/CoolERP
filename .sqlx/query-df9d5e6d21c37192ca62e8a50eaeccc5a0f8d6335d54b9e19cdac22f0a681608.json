@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            i.sku,\n            i.name,\n            (\n                COALESCE(\n                    SUM(CASE WHEN sm.to_location IS NOT NULL THEN sm.qty ELSE 0 END), 0::numeric\n                ) - COALESCE(\n                    SUM(CASE WHEN sm.from_location IS NOT NULL THEN sm.qty ELSE 0 END), 0::numeric\n                )\n            )::numeric(20, 4)::text AS \"on_hand!: String\"\n        FROM items i\n        LEFT JOIN stock_moves sm ON sm.item_id = i.id\n        GROUP BY i.id, i.sku, i.name\n        ORDER BY i.sku\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "sku",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "on_hand!: String",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "df9d5e6d21c37192ca62e8a50eaeccc5a0f8d6335d54b9e19cdac22f0a681608"
+}
