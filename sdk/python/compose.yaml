@@ -1,0 +1,50 @@
+name: coolerp-sdk60-prototype
+services:
+  db:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_USER: sdk_test
+      POSTGRES_PASSWORD: disposable_only
+      POSTGRES_DB: sdk_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    volumes:
+      - ../../migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U sdk_test -d sdk_test]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+  build:
+    image: rust:1.95-bookworm
+    working_dir: /src
+    environment:
+      DATABASE_URL: postgres://sdk_test:disposable_only@db/sdk_test
+      CARGO_TARGET_DIR: /target
+      RUSTUP_TOOLCHAIN: 1.99.0
+    volumes:
+      - ../..:/src
+      - target:/target
+      - cargo:/usr/local/cargo/registry
+    depends_on:
+      db:
+        condition: service_healthy
+    command: [sh, -c, 'cargo run --locked -p ol-api --example export_openapi > sdk/python/openapi.json && cargo build --locked -p ol-api --bin ol-api']
+  api:
+    image: rust:1.95-bookworm
+    working_dir: /src
+    environment:
+      DATABASE_URL: postgres://sdk_test:disposable_only@db/sdk_test
+      BIND_ADDR: 0.0.0.0:3000
+    volumes:
+      - ../..:/src:ro
+      - target:/target:ro
+    ports:
+      - 127.0.0.1:38660:3000
+    depends_on:
+      db:
+        condition: service_healthy
+    command: [/target/debug/ol-api]
+volumes:
+  target:
+  cargo:

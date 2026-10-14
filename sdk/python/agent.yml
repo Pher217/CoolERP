@@ -1,0 +1,15 @@
+agent: 1
+defaults:
+  safety:
+    get: read_only
+    post: mutating
+    put: mutating
+    patch: mutating
+    delete: destructive
+  # CoolERP uses a UUID inside the body, not Tungsten's idempotency header.
+  # Do not promise automatic mutation retries or synthesize a second key.
+  idempotency: none
+  preview: local
+  retries:
+    read_only: { max: 0 }
+    mutating: { max: 0 }

@@ -1,0 +1,427 @@
+[
+  {
+    "code": "vulnerability",
+    "advisory_id": "RUSTSEC-2026-0285",
+    "package": {
+      "name": "rustls",
+      "version": "0.23.40"
+    },
+    "message": "TLS 1.3 handshake messages incorrectly accepted across encryption level boundaries",
+    "solution": [
+      "Solution: Upgrade to >=0.23.45 (try `cargo update -p rustls`)"
+    ],
+    "dependency_graphs": [
+      {
+        "Krate": {
+          "name": "rustls",
+          "version": "0.23.40"
+        },
+        "parents": [
+          {
+            "Krate": {
+              "name": "hyper-rustls",
+              "version": "0.27.9"
+            },
+            "parents": [
+              {
+                "Krate": {
+                  "name": "reqwest",
+                  "version": "0.12.28"
+                },
+                "parents": [
+                  {
+                    "Krate": {
+                      "name": "ol-api",
+                      "version": "0.1.0"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "Krate": {
+              "name": "reqwest",
+              "version": "0.12.28"
+            },
+            "repeat": true
+          },
+          {
+            "Krate": {
+              "name": "tokio-rustls",
+              "version": "0.26.4"
+            },
+            "parents": [
+              {
+                "Krate": {
+                  "name": "hyper-rustls",
+                  "version": "0.27.9"
+                },
+                "repeat": true
+              },
+              {
+                "Krate": {
+                  "name": "reqwest",
+                  "version": "0.12.28"
+                },
+                "repeat": true
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "code": "vulnerability",
+    "advisory_id": "RUSTSEC-2026-0346",
+    "package": {
+      "name": "rustls",
+      "version": "0.23.40"
+    },
+    "message": "`Debug` impls for client session values expose TLS secrets",
+    "solution": [
+      "Solution: Upgrade to >=0.23.46 (try `cargo update -p rustls`)"
+    ],
+    "dependency_graphs": [
+      {
+        "Krate": {
+          "name": "rustls",
+          "version": "0.23.40"
+        },
+        "parents": [
+          {
+            "Krate": {
+              "name": "hyper-rustls",
+              "version": "0.27.9"
+            },
+            "parents": [
+              {
+                "Krate": {
+                  "name": "reqwest",
+                  "version": "0.12.28"
+                },
+                "parents": [
+                  {
+                    "Krate": {
+                      "name": "ol-api",
+                      "version": "0.1.0"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "Krate": {
+              "name": "reqwest",
+              "version": "0.12.28"
+            },
+            "repeat": true
+          },
+          {
+            "Krate": {
+              "name": "tokio-rustls",
+              "version": "0.26.4"
+            },
+            "parents": [
+              {
+                "Krate": {
+                  "name": "hyper-rustls",
+                  "version": "0.27.9"
+                },
+                "repeat": true
+              },
+              {
+                "Krate": {
+                  "name": "reqwest",
+                  "version": "0.12.28"
+                },
+                "repeat": true
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "code": "vulnerability",
+    "advisory_id": "RUSTSEC-2026-0348",
+    "package": {
+      "name": "rustls",
+      "version": "0.23.40"
+    },
+    "message": "Brotli certificate decompression can allocate up to 1 GiB before authentication",
+    "solution": [
+      "Solution: Upgrade to >=0.23.46 (try `cargo update -p rustls`)"
+    ],
+    "dependency_graphs": [
+      {
+        "Krate": {
+          "name": "rustls",
+          "version": "0.23.40"
+        },
+        "parents": [
+          {
+            "Krate": {
+              "name": "hyper-rustls",
+              "version": "0.27.9"
+            },
+            "parents": [
+              {
+                "Krate": {
+                  "name": "reqwest",
+                  "version": "0.12.28"
+                },
+                "parents": [
+                  {
+                    "Krate": {
+                      "name": "ol-api",
+                      "version": "0.1.0"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "Krate": {
+              "name": "reqwest",
+              "version": "0.12.28"
+            },
+            "repeat": true
+          },
+          {
+            "Krate": {
+              "name": "tokio-rustls",
+              "version": "0.26.4"
+            },
+            "parents": [
+              {
+                "Krate": {
+                  "name": "hyper-rustls",
+                  "version": "0.27.9"
+                },
+                "repeat": true
+              },
+              {
+                "Krate": {
+                  "name": "reqwest",
+                  "version": "0.12.28"
+                },
+                "repeat": true
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "code": "vulnerability",
+    "advisory_id": "RUSTSEC-2026-0349",
+    "package": {
+      "name": "rustls",
+      "version": "0.23.40"
+    },
+    "message": "Unauthenticated ServerHello can downgrade later connections to classical key exchange",
+    "solution": [
+      "Solution: Upgrade to >=0.23.46 (try `cargo update -p rustls`)"
+    ],
+    "dependency_graphs": [
+      {
+        "Krate": {
+          "name": "rustls",
+          "version": "0.23.40"
+        },
+        "parents": [
+          {
+            "Krate": {
+              "name": "hyper-rustls",
+              "version": "0.27.9"
+            },
+            "parents": [
+              {
+                "Krate": {
+                  "name": "reqwest",
+                  "version": "0.12.28"
+                },
+                "parents": [
+                  {
+                    "Krate": {
+                      "name": "ol-api",
+                      "version": "0.1.0"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "Krate": {
+              "name": "reqwest",
+              "version": "0.12.28"
+            },
+            "repeat": true
+          },
+          {
+            "Krate": {
+              "name": "tokio-rustls",
+              "version": "0.26.4"
+            },
+            "parents": [
+              {
+                "Krate": {
+                  "name": "hyper-rustls",
+                  "version": "0.27.9"
+                },
+                "repeat": true
+              },
+              {
+                "Krate": {
+                  "name": "reqwest",
+                  "version": "0.12.28"
+                },
+                "repeat": true
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "code": "unmaintained",
+    "advisory_id": "RUSTSEC-2024-0449",
+    "package": {
+      "name": "unsafe-libyaml",
+      "version": "0.2.11"
+    },
+    "message": "unsafe-libyaml is unmaintained",
+    "solution": [
+      "Solution: No safe upgrade is available!"
+    ],
+    "dependency_graphs": [
+      {
+        "Krate": {
+          "name": "unsafe-libyaml",
+          "version": "0.2.11"
+        },
+        "parents": [
+          {
+            "Krate": {
+              "name": "serde_yaml_ng",
+              "version": "0.10.0"
+            },
+            "parents": [
+              {
+                "Krate": {
+                  "name": "ol-process",
+                  "version": "0.1.0"
+                },
+                "parents": [
+                  {
+                    "Krate": {
+                      "name": "ol-api",
+                      "version": "0.1.0"
+                    }
+                  },
+                  {
+                    "Krate": {
+                      "name": "ol-engine",
+                      "version": "0.1.0"
+                    },
+                    "parents": [
+                      {
+                        "Krate": {
+                          "name": "ol-api",
+                          "version": "0.1.0"
+                        },
+                        "repeat": true
+                      },
+                      {
+                        "Krate": {
+                          "name": "ol-mcp",
+                          "version": "0.1.0"
+                        },
+                        "parents": [
+                          {
+                            "Krate": {
+                              "kind": "dev",
+                              "name": "ol-api",
+                              "version": "0.1.0"
+                            },
+                            "repeat": true
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "Krate": {
+                      "name": "ol-mcp",
+                      "version": "0.1.0"
+                    },
+                    "repeat": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "code": "yanked",
+    "advisory_id": null,
+    "package": {
+      "name": "chacha20",
+      "version": "0.10.0"
+    },
+    "message": "detected yanked crate (try `cargo update -p chacha20`)",
+    "solution": [],
+    "dependency_graphs": [
+      {
+        "Krate": {
+          "name": "chacha20",
+          "version": "0.10.0"
+        },
+        "parents": [
+          {
+            "Krate": {
+              "name": "rand",
+              "version": "0.10.1"
+            },
+            "parents": [
+              {
+                "Krate": {
+                  "name": "rmcp",
+                  "version": "2.2.0"
+                },
+                "parents": [
+                  {
+                    "Krate": {
+                      "name": "ol-mcp",
+                      "version": "0.1.0"
+                    },
+                    "parents": [
+                      {
+                        "Krate": {
+                          "kind": "dev",
+                          "name": "ol-api",
+                          "version": "0.1.0"
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]
