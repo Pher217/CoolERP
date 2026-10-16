@@ -1,0 +1,52 @@
+{
+  "runtime_version": "0.1.2",
+  "python": "3.12.9 (tags/v3.12.9:fdb8142, Feb  4 2025, 15:27:58) [MSC v.1942 64 bit (AMD64)]",
+  "index": "https://pypi.org/simple",
+  "pip_flags": [
+    "--isolated",
+    "--no-cache-dir"
+  ],
+  "runtime_download": {
+    "url": "https://files.pythonhosted.org/packages/6d/b9/f04d341148ec9c334311a54bf1b431a9180484755596e7a4e7d370f557c7/tungsten_runtime-0.1.2-py3-none-any.whl",
+    "archive_info": {
+      "hash": "sha256=33e4fa2050b480798ea2bcf65b544d3b97ecea79469769fc834108c9fc378f25",
+      "hashes": {
+        "sha256": "33e4fa2050b480798ea2bcf65b544d3b97ecea79469769fc834108c9fc378f25"
+      }
+    }
+  },
+  "runtime_direct_url_json": null,
+  "runtime_license": "Apache-2.0",
+  "runtime_source_checkout_on_sys_path": false,
+  "runtime_preinstalled_in_test_environment": false,
+  "source_review": "23 Python files unchanged after CRLF normalization; _core.py changes only RUNTIME_VERSION from 0.1.0 to 0.1.2",
+  "dependencies": {
+    "pytest": "9.1.1",
+    "colorama": "0.4.6",
+    "httpx": "0.28.1",
+    "httpcore": "1.0.9",
+    "iniconfig": "2.3.1",
+    "packaging": "26.3",
+    "pluggy": "1.6.0",
+    "pydantic": "2.14.1",
+    "pydantic_core": "2.50.1",
+    "Pygments": "2.21.0",
+    "tungsten-runtime": "0.1.2",
+    "annotated-types": "0.8.0",
+    "typing_extensions": "4.16.0",
+    "typing-inspection": "0.4.4",
+    "anyio": "4.15.1",
+    "idna": "3.20",
+    "certifi": "2026.7.22",
+    "h11": "0.16.0"
+  },
+  "sdk_tests": {
+    "passed": 336,
+    "warnings": 1,
+    "seconds": 2.43,
+    "scope": "329 offline plus 7 disposable API tests, Python -I isolated mode"
+  },
+  "pip_check": "No broken requirements found",
+  "test_environment": ".venv-clean-sdk-012",
+  "runtime_installation_requires_source_checkout": false
+}
