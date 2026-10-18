@@ -24,4 +24,4 @@ thiserror.workspace = true
 uuid.workspace = true
 chrono.workspace = true
 # Re-export LineEnding for PEM generation; version must match what ed25519-dalek pulls in.
-pkcs8 = { version = "0.10", features = ["pem", "alloc"] }
+pkcs8 = { version = "0.11", features = ["pem", "alloc"] }
