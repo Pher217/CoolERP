@@ -8,7 +8,7 @@ additional accounting validation, not the mechanism protecting raw models.
 
 ## Build strategy and provenance
 
-Tungsten 0.1.2's untouched output remains in `generated/`. Its generic `Int`
+Tungsten 0.1.3's untouched output remains in `generated/`. Its generic `Int`
 accepts integral floats and has no int64 bounds. Changing that alias globally
 would also alter IDs and counts, so this overlay targets reviewed monetary
 fields only. No Tungsten source/runtime/worktree was modified.

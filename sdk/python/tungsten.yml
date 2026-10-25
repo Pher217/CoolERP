@@ -13,5 +13,5 @@ targets:
     package: coolerp-sdk
     module: coolerp_sdk
     version: 0.1.0.dev0
-    runtime: ">=0.1.2,<0.2.0"
+    runtime: ">=0.1.3,<0.2.0"
     out: generated

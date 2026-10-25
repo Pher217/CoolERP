@@ -1,4 +1,55 @@
-# Validation - 2026-10-14
+# Tungsten 0.1.3 upgrade validation - 2026-10-25
+
+PR #136 was verified open, ready for review, with no reviews/comments and head
+30fd6ed9a998a79e014aa05432abf9e64ced93c2 before this scoped upgrade. Work used a
+separate detached worktree; the original checkout was not edited.
+
+- Compiler v0.1.3 source commit: `9a8d60e6437fff409041caab4d3f8d87e067604e`.
+- Windows release ZIP SHA256, matched release SHA256SUMS and GitHub asset digest:
+  `14dbdfc914df4ed409264e013e407e4e39d17cace8e0102efa41c339dbde647c`.
+- Published runtime wheel SHA256:
+  `cba61fcaf595b1a75d13ee2e2d60a037de3a6a513a2645b037d1d3079dff15b3`.
+  All 24 Python files equal reviewed tag source after line-ending normalization.
+- Strict generation and drift check pass: 17 operations, 27 files. TG0303 and
+  TG0760 remain informational; no claim of complete schema support.
+- All 20 cents overrides remain. Version 0.1.3 still accepts integral floats and
+  unbounded ints without this explicit overlay. Python remains >=3.12.
+- Runtime synchronous native transport changed; added a real loopback server
+  test that stalls a successful POST body beyond its deadline and verifies Err,
+  bounded return time and no retry. A second test verifies custom transport
+  callbacks execute on the caller's thread. No production endpoint is used.
+- Fresh wheel and sdist installs independently resolve runtime 0.1.3 from PyPI,
+  including the new sniffio dependency (tested 1.3.1). HTTPX stays at 0.28.1.
+- **338 tests pass in each installation**: original 329 offline tests, two new
+  transport regressions and seven disposable PostgreSQL 17 API tests.
+  One expected warning diagnoses a deliberately corrupted monetary model.
+  Both environments pass `pip check`.
+- Rust fmt, Clippy (all targets/features), workspace tests, all nine migrations
+  into an empty disposable DB, and SQLx workspace cache check pass. The actual
+  local router OpenAPI equals the checked-in contract. Rust source/lockfile and
+  SQLx cache are unchanged by this upgrade.
+- **cargo-deny fails with four current advisories** in the unchanged Rust
+  dependency tree: RUSTSEC-2026-0382 (rustls-webpki 0.103.15),
+  RUSTSEC-2026-0386 (tokio 1.52.3), RUSTSEC-2024-0449 (unsafe-libyaml 0.2.11),
+  and RUSTSEC-2026-0381 (webpki-roots 1.0.7). Bans/licenses/sources pass.
+  These are reported separately, not suppressed or silently fixed in this SDK
+  upgrade. Historical findings below are not the current advisory result.
+- Hosted CI requires a separate exact-head check after push. Previous
+  `action_required` workflows are not passing test results. No UI changes or
+  local UI checks are part of this upgrade.
+
+Reproduction uses README.md with Tungsten 0.1.3. Build with
+`python -m build sdk/python`, then install its wheel and sdist into separate new
+venvs using `pip --isolated install --no-cache-dir --index-url https://pypi.org/simple
+-c sdk/python/constraints-py312.txt <artifact> pytest`. Against the documented
+disposable Compose API, set `COOLERP_DISPOSABLE_TEST=1` and run
+`python -I -m pytest sdk/python/tests -q`. The original Rust commands below apply;
+use a new disposable database name such as `sdk_migrations_013` for migration
+validation. `PYPI_VALIDATION.json` contains current runtime provenance.
+
+The following baseline records describe the earlier 0.1.2 work only.
+
+# Historical baseline validation - 2026-10-14
 
 Local verification used Python 3.12.9, Rust 1.99.0, and disposable PostgreSQL
 17.11 (Debian bookworm), starting from CoolERP 7944e3f. No production ledger
