@@ -1,4 +1,47 @@
-# Tungsten 0.1.3 upgrade validation - 2026-10-25
+# Tungsten 0.1.4 upgrade validation - 2026-10-28
+
+PR #136 remains open and ready for review. Its head was verified as
+`fa1d4b0393527c38d05b21945c254ea24ef8daaa` with no conversation, review or inline
+comments before this upgrade. The previous task workspace had disappeared;
+its exact pushed branch was restored into a separate clone without modifying
+other project checkouts.
+
+- Generator tag v0.1.4 resolves to `87786d95db97ed9a8908de4acca66b32bbd25ed0`.
+  Windows compiler archive SHA256, checked against release sums and asset digest:
+  `360aaa65d18aeafa04b03ea5e7e4a85503eba4dc2fe23659115577ec4f5181c4`.
+- Runtime wheel SHA256:
+  `eb60f38d0878fb899458d35a3e4b2e6f34a45042f7f45b6a1cc22fbdab70ccc9`.
+  All 24 Python files match the reviewed tag source after CRLF normalization.
+  Transport and the monetary overlay patterns are unchanged from 0.1.3.
+- The only dependency constraint updates are tungsten-runtime 0.1.3 -> 0.1.4
+  and certifi 2026.7.22 -> 2026.10.19, required by runtime 0.1.4. No npm
+  component is involved; npm release availability is not assumed.
+- Strict regeneration and drift check pass for all 17 operations / 27 files.
+  TG0303 and TG0760 remain informational. The actual disposable router OpenAPI
+  equals the preserved checked-in document. All 20 strict cents fields remain.
+- Fresh wheel and sdist installations independently resolve the published
+  runtime and certifi from PyPI, with no source runtime override or direct URL.
+  Both pass `pip check`. Each passes 331 offline/transport tests and all seven
+  disposable PostgreSQL API tests: **338 tests per installation**. One expected
+  warning diagnoses a deliberately corrupted monetary model instance.
+- Rust formatting, Clippy (all targets/features) and workspace tests pass on
+  the unchanged Rust source/lockfile; the baseline ignored ledger test remains.
+- All nine migrations pass in a separate empty disposable database;
+  `cargo sqlx prepare --check --workspace` passes. No cache records changed.
+- cargo-deny still fails on RUSTSEC-2026-0382 (rustls-webpki),
+  RUSTSEC-2026-0386 (tokio), RUSTSEC-2024-0449 (unsafe-libyaml), and
+  RUSTSEC-2026-0381 (webpki-roots). Bans/licenses/sources pass. No unrelated
+  dependency fix or policy suppression is included.
+
+Use README.md for generation and package installation. For both artifact
+installations run the suite without the API first, then set
+`COOLERP_DISPOSABLE_TEST=1` and run `tests/test_disposable_api.py` only after
+starting this task's disposable Compose API. Current package provenance is in
+`PYPI_VALIDATION.json`. Earlier sections below are historical evidence only.
+Hosted CI must be checked on the pushed upgrade commit; `action_required` is
+not a passing result. No package release, deployment or merge is involved.
+
+# Historical Tungsten 0.1.3 validation - 2026-10-25
 
 PR #136 was verified open, ready for review, with no reviews/comments and head
 30fd6ed9a998a79e014aa05432abf9e64ced93c2 before this scoped upgrade. Work used a

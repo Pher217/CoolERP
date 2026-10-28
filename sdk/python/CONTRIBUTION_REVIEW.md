@@ -53,6 +53,6 @@
 
 Maintainer review is appropriate with the remaining cargo-deny failures stated
 explicitly. No package release, deployment, or merge is part of this change.
-The SDK uses the published tungsten-runtime 0.1.3 package from PyPI.
+The SDK uses the published tungsten-runtime 0.1.4 package from PyPI.
 A maintained YAML parser replacement should be reviewed separately because it
 changes core process parsing semantics, including scalar typing and errors.
