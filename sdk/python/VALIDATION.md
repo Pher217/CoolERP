@@ -1,4 +1,42 @@
-# Tungsten 0.1.4 upgrade validation - 2026-10-28
+# Tungsten 0.1.6 upgrade validation - 2026-10-29
+
+The existing PR #136 was verified open and ready for review at 497a6a1, with a
+clean checkout and no new maintainer comments/reviews. This upgrade touches
+only sdk/python and preserves all 20 strict signed-i64 cents fields.
+
+- Compiler source: c84a9240c5a371ae8c0e72e1f651b1eb059d94ba (peeled v0.1.6).
+- Windows compiler ZIP SHA256, verified against release sums and asset digest:
+  b25d6c4bb900bad44aa01ec4adc7d068699b5b8480ad21aee025eef341d62d6d.
+- Runtime wheel SHA256: 8ea6120435b61a35f555552f4aa619ce934ae5407a742ec7f976b6162572838e.
+  Its 31 Python files match the reviewed immutable source tag.
+- Actual strict regeneration and drift checks pass for 17 operations / 27 files.
+  Existing TG0303 and TG0760 informational diagnostics remain disclosed.
+- Wheel and sdist each installed freshly from public PyPI dependencies; runtime
+  0.1.6 and certifi 2026.10.19 resolved without local source overrides.
+  Both pip checks pass. Other dependency pins are unchanged.
+- Each installed artifact passed **332 tests; 7 skipped**, with one expected
+  Pydantic warning from deliberately corrupted input. The new test asserts the
+  default 4 MiB cap returns RESPONSE_TOO_LARGE / retryable=never and one POST.
+  Existing cents, UUID/no-retry, native deadline and async mock tests pass.
+- **Environment blocker:** Docker Desktop's Linux engine was unavailable.
+  Starting Desktop failed during Inference manager initialization: its
+  dockerInference listener file could not be accessed. No factory reset, host
+  settings change or alternative production ledger was used. Consequently the
+  seven ledger API tests, Rust checks, SQLx migrations/cache verification and
+  fresh cargo-deny run did not execute for this upgrade. Historical results
+  below are not current 0.1.6 validation. The four previously recorded Rust
+  advisories remain unresolved; no Rust dependency change is included.
+- Runtime 0.1.6 introduces a default 4 MiB ordinary-response cap; None inherits
+  it. Scheduler/telemetry/total-call deadline settings remain disabled by default.
+  No new OAuth/download/webhook features were enabled for this contribution.
+
+Reproduction commands are in README.md; package provenance is in
+PYPI_VALIDATION.json. Restore a working local Docker engine to complete the
+seven disposable API tests and repository checks before relying on this upgrade
+for ledger use. Hosted checks must be evaluated on the exact pushed commit;
+action_required is not a passing result. No merge, deployment or release.
+
+# Historical Tungsten 0.1.4 upgrade validation - 2026-10-28
 
 PR #136 remains open and ready for review. Its head was verified as
 `fa1d4b0393527c38d05b21945c254ea24ef8daaa` with no conversation, review or inline

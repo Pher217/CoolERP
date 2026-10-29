@@ -1,4 +1,4 @@
-"""Exercise 0.1.3 native sync transport using only an ephemeral loopback server."""
+"""Exercise runtime transport with mocks and an ephemeral loopback server."""
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -65,3 +65,24 @@ def test_sync_custom_transport_runs_on_calling_thread():
     with CoolerpClient(ClientOptions(transport=httpx.MockTransport(handle))) as client:
         assert isinstance(client.accounts.balance.get(code="1000"), Ok)
     assert callbacks == [caller]
+
+
+def test_default_response_cap_rejects_oversized_mutation_without_retry():
+    calls = []
+
+    def handle(request):
+        calls.append(request.url.path)
+        return httpx.Response(201, content=b" " * (4 * 1024 * 1024 + 1),
+                              headers={"Content-Type": "application/json"})
+
+    with CoolerpClient(ClientOptions(transport=httpx.MockTransport(handle))) as client:
+        result = client.journal_entries.create(
+            actor="sdk-cap-test", entry_date="2025-01-15", journal_code="GEN",
+            idempotency_key=str(uuid4()),
+            lines=[dict(account_code="1000", debit=10000, credit=0),
+                   dict(account_code="4000", debit=0, credit=10000)],
+        )
+        assert isinstance(result, Err)
+        assert result.error["code"] == "RESPONSE_TOO_LARGE"
+        assert result.error["retryable"] == "never"
+    assert calls == ["/journal-entries"]
