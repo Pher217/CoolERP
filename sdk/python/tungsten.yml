@@ -1,0 +1,17 @@
+tungsten: 1
+api:
+  name: coolerp
+  title: CoolERP
+inputs:
+  - namespace: coolerp
+    spec: openapi.json
+servers:
+  default: http://127.0.0.1:38660
+  allow_override: true
+targets:
+  python:
+    package: coolerp-sdk
+    module: coolerp_sdk
+    version: 0.1.0.dev0
+    runtime: ">=0.1.6,<0.2.0"
+    out: generated

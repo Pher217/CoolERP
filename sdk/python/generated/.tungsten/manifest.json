@@ -1,0 +1,118 @@
+{
+  "format": 1,
+  "tungsten_version": "0.1.6",
+  "inputs": {
+    "agent.yml": "blake3:c74aeb0f8f3f13f1b7115f328629eed4b403a16e126aa477ce093586f2b25b00",
+    "openapi.json": "blake3:902e97b3a9e1cf039770e26fdac15c86f93d116d019cea53bcd6898345c75c0d",
+    "tungsten.yml": "blake3:3c19889feeb2ccf3a6efd8b4c35e594ca07d55556209fc88fd5718bc48347722"
+  },
+  "files": [
+    {
+      "path": "README.md",
+      "digest": "blake3:86e3a25bb08cb3d4918356797c3d166ad3ce817e41519722be54483307d380f2"
+    },
+    {
+      "path": "coolerp_sdk/__init__.py",
+      "digest": "blake3:a4a0103a6594389c4a04d727e5bdb2cc79b47fa36cac4578ead8a721569babf1"
+    },
+    {
+      "path": "coolerp_sdk/_descriptors.py",
+      "digest": "blake3:cff564d9c196f1ea47117f7c480693de4fbea92a12b91e75d133cac7dec005f3"
+    },
+    {
+      "path": "coolerp_sdk/_internal.py",
+      "digest": "blake3:749fbca0203e9ce8f73de4abf2207d678dbc5f1df7c4becdc051f7101eb7f389"
+    },
+    {
+      "path": "coolerp_sdk/client.py",
+      "digest": "blake3:6087029595de44b1d1bcc43d5bcca821cfb684f28582c082ee13e488cbb89ccf"
+    },
+    {
+      "path": "coolerp_sdk/models/__init__.py",
+      "digest": "blake3:fb88ca3df4f96b8ee5cb83a4e9af9d470de330c33f86aa1bad769ccffc65e6dd"
+    },
+    {
+      "path": "coolerp_sdk/models/coolerp.py",
+      "digest": "blake3:43ec4e8d7e186a0e6b7d8d263c45444fb1d027069de11460b07ea8d2d3070667"
+    },
+    {
+      "path": "coolerp_sdk/py.typed",
+      "digest": "blake3:af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"
+    },
+    {
+      "path": "coolerp_sdk/resources/__init__.py",
+      "digest": "blake3:98d471fcf174f2e186024a29a629dc2cbd073cb6e7b056a504bb353ef8df878a"
+    },
+    {
+      "path": "coolerp_sdk/resources/accounts.py",
+      "digest": "blake3:35a07187d9d4f21bafc5611a0189ae6f4ad5a2a4d7e91148aed9e041b35a9171"
+    },
+    {
+      "path": "coolerp_sdk/resources/accounts_balance.py",
+      "digest": "blake3:7f4561f5cb2b044c40de88124e24891fcc67bd745cf0debc9c3aa6ff8bf38293"
+    },
+    {
+      "path": "coolerp_sdk/resources/accounts_balances.py",
+      "digest": "blake3:954d897cd149d338be13769ac19f821477511e9976b381c44bca9f6c09de0f59"
+    },
+    {
+      "path": "coolerp_sdk/resources/chat.py",
+      "digest": "blake3:fada15bfeb3ffde55fb32bcfce2351cba374d0aa48c963059d6603ba00223e9f"
+    },
+    {
+      "path": "coolerp_sdk/resources/health.py",
+      "digest": "blake3:712aee19a4eb535276a445f1b976676d731cf107f843283c452e84c6774f240d"
+    },
+    {
+      "path": "coolerp_sdk/resources/instances.py",
+      "digest": "blake3:f931665d730927d23c172c3c652f6b814335e11aeae37abec15b3c419d2940db"
+    },
+    {
+      "path": "coolerp_sdk/resources/inventory.py",
+      "digest": "blake3:053c50a0535103c19827816b698fde8d50cd69bb879627d6b236f93d050f2c35"
+    },
+    {
+      "path": "coolerp_sdk/resources/inventory_receive.py",
+      "digest": "blake3:0bfa4e9dc36de4f0628166ba58af776f4a401ec3210ce0c3b237cdbae12cd39e"
+    },
+    {
+      "path": "coolerp_sdk/resources/journal_entries.py",
+      "digest": "blake3:1ec0937dfaf62ad5f3205c5ea46bb38bd3e9bec6e69bd33f27e7cc12f9189545"
+    },
+    {
+      "path": "coolerp_sdk/resources/metrics.py",
+      "digest": "blake3:073edfc58171d81375a06ab232abd8726ba379bd49c01d1fdd10fe2b1d23f769"
+    },
+    {
+      "path": "coolerp_sdk/resources/metrics_ar_aging.py",
+      "digest": "blake3:d98c2ee551f629891de4b22456a73032aceb08ae87e7dce82663b19ae8c59927"
+    },
+    {
+      "path": "coolerp_sdk/resources/metrics_overview.py",
+      "digest": "blake3:915747c41d499e42f47f248d767ba834d189735f04018ebd70a32c1681235066"
+    },
+    {
+      "path": "coolerp_sdk/resources/processes.py",
+      "digest": "blake3:2dd794c5120fcdf4a6e36787730e041f0062544a4a1ddd264ee343380bb6b0df"
+    },
+    {
+      "path": "coolerp_sdk/resources/reports.py",
+      "digest": "blake3:1c9a6ce081be74e5b0aafe3e7fef40a71b3dc4ce37e00616f21d6a891960926b"
+    },
+    {
+      "path": "coolerp_sdk/resources/reports_subledger_reconciliation.py",
+      "digest": "blake3:ce3e18e0cca75804f9a226cd877229a6f154baf26115ebd2393201e8d10bb6a8"
+    },
+    {
+      "path": "coolerp_sdk/resources/reports_trial_balance.py",
+      "digest": "blake3:c8b32975352df90474a5bda905d5fef7503dc99bbfc376eb1afb534a3a1217f6"
+    },
+    {
+      "path": "pyproject.toml",
+      "digest": "blake3:a150625348bf69686c0c14ecf6fa80a06cadb5d1108f45ab1c46686ad8f37f19"
+    }
+  ],
+  "custom": [
+    "coolerp_sdk/custom/__init__.py"
+  ]
+}

@@ -18,9 +18,8 @@ jobs:
     name: Rust (fmt, clippy, test)
     runs-on: ubuntu-latest
 
-    # The query! macros are compile-time checked against a live database and
-    # there is no .sqlx offline cache committed, so every Rust job needs
-    # Postgres up and migrated before `cargo build` runs.
+    # Integration tests and verification of the committed SQLx query metadata
+    # require a migrated disposable database.
     services:
       postgres:
         image: postgres:17
@@ -69,6 +68,11 @@ jobs:
 
       - name: cargo test
         run: cargo test --all
+
+      - name: Verify SQLx query metadata
+        run: |
+          cargo install --locked sqlx-cli --version 0.8.6 --no-default-features --features postgres,rustls
+          cargo sqlx prepare --check --workspace
 
   deny:
     name: cargo-deny (licenses, advisories, bans)
